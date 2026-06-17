@@ -21,7 +21,7 @@ from app.collectors.player_news import collect_player_news
 from app.config import settings
 from app.postmortem.analyzer import run_postmortems, settle_predictions
 from app.prediction.elo import rebuild_ratings
-from app.prediction.engine import predict_upcoming
+from app.prediction.engine import predict_upcoming, repredict_on_critical_news
 from app.processing.pipeline import run_news_pipeline
 
 logging.basicConfig(level=settings.log_level)
@@ -81,6 +81,11 @@ def build_scheduler() -> AsyncIOScheduler:
         _job(_settle_and_postmortem, "settle_postmortem"),
         "interval",
         minutes=15,
+    )
+    sched.add_job(
+        _job(lambda: repredict_on_critical_news(notify=True), "repredict_critical"),
+        "interval",
+        minutes=20,
     )
     sched.add_job(
         _job(collect_player_news, "player_news"), "interval", hours=3

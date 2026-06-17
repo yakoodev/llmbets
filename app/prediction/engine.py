@@ -15,7 +15,7 @@ import logging
 import math
 import sys
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.config import settings
 from app.db.models import (
@@ -274,6 +274,78 @@ async def predict_upcoming(notify: bool = False) -> int:
     return count
 
 
+async def repredict_on_critical_news(notify: bool = True) -> int:
+    """Refresh a match's prediction when a CRITICAL news item (stand-in, illness,
+    roster change…) arrives AFTER the last prediction — the core "react to a
+    last-minute story" behaviour. Replaces the prior unsettled prediction."""
+    from app.db.models import MatchRelevanceLink, NewsItem
+    from app.telegram.formatters import format_forecast
+    from app.telegram.notify import send_message
+
+    count = 0
+    async with SessionLocal() as session:
+        rows = list(
+            await session.execute(
+                select(Match, func.max(Prediction.created_at))
+                .join(Prediction, Prediction.match_id == Match.id)
+                .where(
+                    Match.status == "upcoming",
+                    Match.team_a_id.isnot(None),
+                    Match.team_b_id.isnot(None),
+                )
+                .group_by(Match.id)
+            )
+        )
+        for match, last_pred_at in rows:
+            fresh = await session.scalar(
+                select(func.count())
+                .select_from(MatchRelevanceLink)
+                .join(NewsItem, NewsItem.id == MatchRelevanceLink.news_item_id)
+                .where(
+                    MatchRelevanceLink.match_id == match.id,
+                    NewsItem.is_critical.is_(True),
+                    NewsItem.created_at > last_pred_at,
+                )
+            )
+            if not fresh:
+                continue
+            # drop the stale (unsettled) prediction + its snapshot, then re-run
+            old = list(
+                await session.scalars(
+                    select(Prediction).where(
+                        Prediction.match_id == match.id,
+                        Prediction.was_correct.is_(None),
+                    )
+                )
+            )
+            snap_ids = [p.snapshot_id for p in old]
+            for p in old:
+                await session.delete(p)
+            await session.flush()
+            for sid in snap_ids:
+                snap = await session.get(PredictionSnapshot, sid)
+                if snap:
+                    await session.delete(snap)
+            await session.commit()
+
+            pred = await predict_match(session, match)
+            if pred and notify:
+                team_a = await session.get(Team, match.team_a_id)
+                team_b = await session.get(Team, match.team_b_id)
+                text = (
+                    "🔄 Обновлённый прогноз — свежая критичная новость\n\n"
+                    + format_forecast(match, team_a, team_b, pred)
+                )
+                await send_message(text)
+                pred.notified_at = __import__("datetime").datetime.now(
+                    __import__("datetime").timezone.utc
+                )
+                await session.commit()
+            count += 1
+    log.info("repredict_on_critical_news: refreshed %d predictions", count)
+    return count
+
+
 async def _main() -> None:
     logging.basicConfig(level=settings.log_level)
     args = sys.argv[1:]
@@ -282,6 +354,9 @@ async def _main() -> None:
     if target == "all":
         n = await predict_upcoming(notify=notify)
         print(f"Created {n} predictions (notify={notify}).")
+    elif target == "critical":
+        n = await repredict_on_critical_news(notify=notify)
+        print(f"Refreshed {n} predictions on critical news (notify={notify}).")
     else:
         async with SessionLocal() as session:
             match = await session.get(Match, __import__("uuid").UUID(target))
