@@ -126,7 +126,7 @@ async def run_postmortems(limit: int = 20, notify: bool = True) -> int:
                 data = await llm.chat_json(
                     "Верни только валидный JSON по схеме.",
                     render(prompt["template"], input_json=payload),
-                    tier="chat",
+                    tier=settings.postmortem_model_tier,
                     temperature=0.3,
                 )
             except Exception as e:  # noqa: BLE001

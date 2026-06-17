@@ -52,6 +52,18 @@ class Settings(BaseSettings):
     # News fetching often needs the proxy too (egress blocked in-region).
     news_proxy_url: str = ""
 
+    # ── LLM cost controls ────────────────────────────────────────────
+    # Which model tier explains predictions: "fast" (cheap) or "chat" (strong).
+    # The probability is computed by Elo+form+news (no LLM), so a cheap model
+    # here only makes the prose simpler, not the prediction worse.
+    explain_model_tier: str = "fast"
+    # Post-mortem tier — defaults cheap too (high volume once tier-d matches
+    # settle). Bump to "chat" for deeper error analysis at higher token cost.
+    postmortem_model_tier: str = "fast"
+    # Only predict matches starting within this many hours (don't burn tokens
+    # forecasting the whole week ahead; matches get predicted as they approach).
+    prediction_horizon_hours: int = 48
+
     # Scheduling (minutes)
     news_collect_interval_minutes: int = 30
     match_schedule_interval_minutes: int = 60

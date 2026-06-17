@@ -14,6 +14,7 @@ import asyncio
 import logging
 import math
 import sys
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 
@@ -230,7 +231,7 @@ async def _explain(match, team_a, team_b, features, conf, risk, news, lessons) -
         return await llm.chat_json(
             "Верни только валидный JSON по схеме.",
             render(prompt["template"], input_json=payload),
-            tier="chat",
+            tier=settings.explain_model_tier,
             temperature=0.3,
         )
     except Exception as e:  # noqa: BLE001
@@ -244,6 +245,9 @@ async def predict_upcoming(notify: bool = False) -> int:
 
     count = 0
     async with SessionLocal() as session:
+        horizon = datetime.now(timezone.utc) + timedelta(
+            hours=settings.prediction_horizon_hours
+        )
         matches = list(
             await session.scalars(
                 select(Match)
@@ -251,6 +255,7 @@ async def predict_upcoming(notify: bool = False) -> int:
                     Match.status == "upcoming",
                     Match.team_a_id.isnot(None),
                     Match.team_b_id.isnot(None),
+                    Match.scheduled_at <= horizon,
                 )
                 .order_by(Match.scheduled_at.asc().nullslast())
             )
@@ -267,9 +272,7 @@ async def predict_upcoming(notify: bool = False) -> int:
                 team_b = await session.get(Team, m.team_b_id)
                 text = format_forecast(m, team_a, team_b, pred)
                 await send_message(text)
-                pred.notified_at = __import__("datetime").datetime.now(
-                    __import__("datetime").timezone.utc
-                )
+                pred.notified_at = datetime.now(timezone.utc)
                 await session.commit()
             count += 1
     log.info("predict_upcoming: created %d predictions", count)
@@ -339,9 +342,7 @@ async def repredict_on_critical_news(notify: bool = True) -> int:
                     + format_forecast(match, team_a, team_b, pred)
                 )
                 await send_message(text)
-                pred.notified_at = __import__("datetime").datetime.now(
-                    __import__("datetime").timezone.utc
-                )
+                pred.notified_at = datetime.now(timezone.utc)
                 await session.commit()
             count += 1
     log.info("repredict_on_critical_news: refreshed %d predictions", count)
