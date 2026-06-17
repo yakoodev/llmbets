@@ -246,11 +246,13 @@ async def predict_upcoming(notify: bool = False) -> int:
     async with SessionLocal() as session:
         matches = list(
             await session.scalars(
-                select(Match).where(
+                select(Match)
+                .where(
                     Match.status == "upcoming",
                     Match.team_a_id.isnot(None),
                     Match.team_b_id.isnot(None),
                 )
+                .order_by(Match.scheduled_at.asc().nullslast())
             )
         )
         for m in matches:
