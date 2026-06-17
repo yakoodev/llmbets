@@ -1,0 +1,31 @@
+# Secrets — NEVER commit
+.env
+.env.local
+*.key
+*.pem
+
+# Local tool / editor state
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Data / runtime
+*.log
+*.sqlite
+data/
+minio_data/
+postgres_data/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

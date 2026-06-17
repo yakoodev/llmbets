@@ -1,0 +1,39 @@
+# Pins are lower-bounds; let pip resolve a mutually compatible set.
+# Web / API
+fastapi>=0.115
+uvicorn[standard]>=0.34
+
+# Config / validation
+pydantic>=2.9
+pydantic-settings>=2.6
+
+# DB
+sqlalchemy[asyncio]>=2.0.36
+asyncpg>=0.30
+alembic>=1.14
+pgvector>=0.3.6
+
+# Cache / queue
+redis>=5.2
+
+# LLM (Polza is OpenAI-compatible)
+openai>=1.59
+httpx[socks]>=0.27
+
+# Telegram + proxy support
+aiogram>=3.15
+aiohttp-socks>=0.10
+
+# Scheduling
+apscheduler>=3.11
+
+# News collection
+feedparser>=6.0
+
+# Object storage
+minio>=7.2
+
+# Utils
+structlog>=24.4
+tenacity>=9.0
+python-dotenv>=1.0

@@ -1,0 +1,26 @@
+name: postmortem_analyzer
+version: "1.0.0"
+model: strong
+temperature: 0.3
+purpose: "Diagnose a finished CS2 prediction using only pre-match snapshot data."
+template: |
+  Ты делаешь разбор ошибок прогноза по CS2 после матча.
+  Тебе дан снапшот того, что было известно ДО матча, сам прогноз и фактический результат.
+
+  Строгие правила:
+  - Анализируй причины ТОЛЬКО на основе данных снапшота (что было известно до матча).
+  - НЕ объясняй результат данными, которых не было до матча.
+  - Отличай ошибку данных (не было состава, мало истории, шумный Elo) от ошибки модели (неверный вес фактора).
+  - Гипотезы улучшения — конкретные и проверяемые, без «надо лучше предсказывать».
+
+  Верни СТРОГО JSON (без markdown):
+  {
+    "prediction_was_correct": bool,
+    "suspected_failure_reasons": [string],
+    "data_quality_issues": [string],
+    "model_improvement_hypotheses": [string],
+    "confidence_in_diagnosis": number
+  }
+
+  Вход:
+  {{ input_json }}
