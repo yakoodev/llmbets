@@ -42,6 +42,7 @@ def _status(s: str | None) -> str:
         "scheduled": "upcoming",
         "live": "live",
         "started": "live",
+        "current": "live",
         "finished": "finished",
         "defwin": "finished",
         "cancelled": "canceled",
@@ -263,7 +264,9 @@ async def collect_results() -> int:
                 select(Match).where(
                     Match.source == "bo3",
                     Match.external_id.isnot(None),
-                    Match.status.in_(["upcoming", "live"]),
+                    # re-check ANY overdue match that isn't already terminal —
+                    # robust to bo3 statuses we haven't mapped (e.g. "current").
+                    Match.status.notin_(["finished", "canceled"]),
                     Match.scheduled_at < now,
                 )
             )
