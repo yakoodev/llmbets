@@ -7,8 +7,10 @@
 - The **local PC stack is stopped** (`docker compose down`); do NOT run the bot
   locally at the same time (two pollers → Telegram getUpdates conflict).
 - **All further changes are deployed to the VPS:** edit locally → `git push` →
-  on the VPS `cd /root/llmbets && git pull && docker compose -f docker-compose.prod.yml up -d`
-  (add `build` first if requirements.txt changed).
+  on the VPS `cd /root/llmbets && git pull && docker compose -f docker-compose.prod.yml restart`
+  (code is bind-mounted, so `restart` reloads it; plain `up -d` won't restart
+  unchanged containers). If requirements.txt changed:
+  `docker compose -f docker-compose.prod.yml build && ... up -d`.
 - SSH is key-based (no password). Health: `/status` in the bot, or
   `curl localhost:8000/health` on the host.
 
@@ -52,8 +54,8 @@ docker compose -f docker-compose.prod.yml logs -f scheduler
 ```bash
 cd llmbets
 git pull
-# code only (bind-mounted) → just restart:
-docker compose -f docker-compose.prod.yml up -d
+# code only (bind-mounted) → restart reloads it (up -d won't restart unchanged):
+docker compose -f docker-compose.prod.yml restart
 # if requirements.txt changed → rebuild first:
 docker compose -f docker-compose.prod.yml build && docker compose -f docker-compose.prod.yml up -d
 ```
