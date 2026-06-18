@@ -18,6 +18,12 @@ def esc(text) -> str:
     return html.escape(str(text)) if text is not None else ""
 
 
+def team_name(name) -> str:
+    """Escape + stop Telegram auto-linking names that look like domains
+    ("Virtus.pro" → ".pro" TLD). U+2060 (word joiner) is invisible & no-break."""
+    return esc(name).replace(".", ".⁠")
+
+
 def fmt_when(dt: datetime | None) -> str:
     return (dt + MSK).strftime("%d.%m %H:%M МСК") if dt else "—"
 
@@ -40,9 +46,9 @@ def _bullets(items, limit: int = 5) -> str:
 
 
 def _side(name: str, pct: float, fav: bool) -> str:
-    if fav:
-        return f"🏆 <b>{esc(name)} {pct:.0f}%</b>"
-    return f"{esc(name)} {pct:.0f}%"
+    if fav:  # predicted winner — emphasised, no emoji
+        return f"<b><u>{team_name(name)} {pct:.0f}%</u></b>"
+    return f"{team_name(name)} {pct:.0f}%"
 
 
 def prediction_line(team_a, team_b, pa, pb, when, risk, settled=None) -> str:
@@ -89,7 +95,7 @@ def format_forecast(match: Match, team_a: Team, team_b: Team, pred: Prediction) 
         f"{_side(team_a.name, pa, fav_a)}",
         f"{_side(team_b.name, pb, not fav_a)}",
         "",
-        f"🏆 <b>{esc(match.tournament_name or '—')}</b>",
+        f"🏟 <b>{esc(match.tournament_name or '—')}</b>",
         f"🎮 {esc((match.format or '—').upper())}  ·  🕒 {fmt_when(match.scheduled_at)}",
         f"{_risk_emoji(pred.risk_level)} Confidence <b>{float(pred.confidence):.2f}</b>"
         f"  ·  Risk <b>{esc(pred.risk_level)}</b>",
@@ -121,9 +127,9 @@ def format_results_summary(results: list[dict]) -> str:
     for r in results:
         mark = "✅" if r["correct"] else "❌"
         rows.append(
-            f"{mark} 🏆 <b>{esc(r['winner'])}</b> "
-            f"<i>({esc(r['team_a'])} vs {esc(r['team_b'])})</i> — "
-            f"ставили на {esc(r['predicted'])} {r['prob']:.0f}%"
+            f"{mark} <b><u>{team_name(r['winner'])}</u></b> "
+            f"<i>({team_name(r['team_a'])} vs {team_name(r['team_b'])})</i> — "
+            f"ставили на {team_name(r['predicted'])} {r['prob']:.0f}%"
         )
     body = "\n".join(rows)
     if n > 6:
@@ -144,9 +150,9 @@ def format_news_digest(entries: list[dict], collected: int, processed: int) -> s
         tag = "⚠️ " if e.get("critical") else ""
         where = []
         if e.get("teams"):
-            where.append("команды: " + ", ".join(esc(t) for t in e["teams"]))
+            where.append("команды: " + ", ".join(team_name(t) for t in e["teams"]))
         if e.get("players"):
-            where.append("игроки: " + ", ".join(esc(p) for p in e["players"]))
+            where.append("игроки: " + ", ".join(team_name(p) for p in e["players"]))
         if e.get("matches"):
             where.append(f"матчей: {e['matches']}")
         where_str = (" → " + "; ".join(where)) if where else ""

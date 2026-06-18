@@ -22,7 +22,12 @@ from app.db.models import Match, NewsEvent, NewsItem, Prediction, Team, TeamRati
 from app.db.session import SessionLocal
 from app.llm.client import llm
 from app.runtime_config import get_config, set_config
-from app.telegram.formatters import esc, format_prediction_list, format_results_summary
+from app.telegram.formatters import (
+    esc,
+    format_prediction_list,
+    format_results_summary,
+    team_name,
+)
 
 logging.basicConfig(level=settings.log_level)
 log = logging.getLogger("bot")
@@ -368,7 +373,7 @@ async def cmd_top(message: Message) -> None:
     lines = ["🏅 <b>Топ команд по Elo</b>"]
     for i, (r, t) in enumerate(rows, 1):
         lines.append(
-            f"{i}. <b>{esc(t.name)}</b> — {float(r.elo):.0f} <i>({r.matches_played} м.)</i>"
+            f"{i}. <b>{team_name(t.name)}</b> — {float(r.elo):.0f} <i>({r.matches_played} м.)</i>"
         )
     await _reply(message, "\n".join(lines))
 
