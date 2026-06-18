@@ -76,7 +76,8 @@ class Settings(BaseSettings):
     # No market odds from bo3 → bet at the model's fair odds (1/prob) on the
     # predicted winner. Balance = start + Σ pnl. Pure calibration test.
     paper_start_balance: float = 1000.0
-    paper_stake: float = 10.0
+    # Stake = this fraction of the CURRENT balance per value bet (compounds).
+    paper_stake_pct: float = 0.02
     # Odds provider: "mock" (test polygon — prices off Elo + vig) or a real one
     # later. odds_margin = bookmaker overround/vig. min_edge = value threshold:
     # only paper-bet when model prob exceeds market implied prob by this much.
