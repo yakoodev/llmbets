@@ -12,11 +12,8 @@ import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from app.collectors.pandascore import (
-    collect_results,
-    collect_rosters,
-    collect_upcoming,
-)
+from app.collectors.bo3 import collect_results, collect_upcoming
+from app.collectors.pandascore import collect_rosters
 from app.collectors.player_news import collect_player_news
 from app.config import settings
 from app.postmortem.analyzer import run_postmortems, settle_predictions

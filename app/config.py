@@ -38,7 +38,12 @@ class Settings(BaseSettings):
     telegram_chat_id: str = "replace_me"
     telegram_proxy_url: str = ""
 
-    # PandaScore
+    # bo3.gg — primary match/result source (HLTV-grade coverage, open API)
+    bo3_base_url: str = "https://api.bo3.gg"
+    bo3_proxy_url: str = ""  # usually the same proxy (egress blocked in-region)
+    bo3_upcoming_days: int = 7
+
+    # PandaScore (legacy; kept for optional reference, no longer the match source)
     pandascore_api_key: str = "replace_me"
     pandascore_base_url: str = "https://api.pandascore.co"
     # Which tournament tiers to track (PandaScore: s>a>b>c>d). Tier-1/2 ≈ s,a,b,c.

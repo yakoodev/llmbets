@@ -29,6 +29,14 @@ async def main() -> None:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
         await conn.execute(text(HNSW_INDEX))
+        # create_all doesn't ALTER existing tables — add new columns explicitly.
+        await conn.execute(
+            text("ALTER TABLE teams ADD COLUMN IF NOT EXISTS bo3_id TEXT")
+        )
+        await conn.execute(text("ALTER TABLE teams ADD COLUMN IF NOT EXISTS rank INT"))
+        await conn.execute(
+            text("CREATE INDEX IF NOT EXISTS teams_bo3_id_idx ON teams (bo3_id)")
+        )
     print("Schema ready: extension + tables + hnsw index.")
 
     async with engine.connect() as conn:

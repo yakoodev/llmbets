@@ -64,6 +64,8 @@ class Team(Base, TimestampMixin, UpdatedMixin):
     slug: Mapped[str | None] = mapped_column(Text, unique=True)
     country: Mapped[str | None] = mapped_column(Text)
     pandascore_id: Mapped[str | None] = mapped_column(Text, index=True)
+    bo3_id: Mapped[str | None] = mapped_column(Text, index=True)
+    rank: Mapped[int | None] = mapped_column(Integer)  # bo3.gg world rank
     tier: Mapped[str | None] = mapped_column(Text)  # tier1 / tier2 / ...
 
     rosters: Mapped[list["TeamRoster"]] = relationship(back_populates="team")

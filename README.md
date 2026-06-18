@@ -12,7 +12,7 @@ after each match and keeps a post-mortem memory to improve over time.
 - Python 3.12, FastAPI, SQLAlchemy 2.x (async), PostgreSQL 16 + pgvector
 - Redis, MinIO (object storage)
 - LLM: Polza.ai (OpenAI-compatible) — classify / extract / explain / post-mortem
-- Data: PandaScore (matches, rosters, results)
+- Data: bo3.gg open API (matches, results, history — HLTV-grade coverage); PandaScore kept for rosters only
 - News: RSS + public Telegram channels
 - Telegram bot: aiogram 3.x, **mandatory proxy** via `TELEGRAM_PROXY_URL`
 - Scheduling: APScheduler
