@@ -9,14 +9,16 @@ from app.telegram.bot import build_bot
 log = logging.getLogger("telegram.notify")
 
 
-async def send_message(text: str, chat_id: str | None = None) -> bool:
+async def send_message(
+    text: str, chat_id: str | None = None, parse_mode: str = "HTML"
+) -> bool:
     target = chat_id or settings.telegram_chat_id
     if not settings.is_configured_telegram or target in ("", "replace_me"):
         log.warning("Telegram not configured — skip send.")
         return False
     bot = build_bot()
     try:
-        await bot.send_message(target, text)
+        await bot.send_message(target, text, parse_mode=parse_mode)
         return True
     except Exception as e:  # noqa: BLE001
         log.error("Telegram send failed: %s: %s", type(e).__name__, e)
