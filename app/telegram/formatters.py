@@ -160,6 +160,18 @@ def format_news_digest(entries: list[dict], collected: int, processed: int) -> s
     return head + "\n\n<blockquote expandable>" + "\n".join(rows) + "</blockquote>"
 
 
+def format_balance(b: dict) -> str:
+    sign = "📈" if b["pnl"] >= 0 else "📉"
+    return (
+        "💰 <b>Тестовый баланс</b>\n"
+        f"Баланс: <b>{b['balance']:.2f}</b>  <i>(старт {b['start']:.0f})</i>\n"
+        f"{sign} PnL: <b>{b['pnl']:+.2f}</b>  ·  ROI: <b>{b['roi']:+.1f}%</b>\n"
+        f"Ставок: <b>{b['bets']}</b> (✅ {b['won']} / ❌ {b['lost']})  ·  ставка {b['stake']:.0f}\n\n"
+        "<i>Ставка на фаворита по fair-odds модели — у bo3 нет рыночных кэфов, "
+        "это тест калибровки.</i>"
+    )
+
+
 def format_postmortem(team_a, team_b, winner, pred, data: dict) -> str:
     """Per-match LLM error analysis — its reasoning, in an expandable quote."""
     on_a = pred.predicted_winner_team_id == team_a.id

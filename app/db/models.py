@@ -399,6 +399,36 @@ class Postmortem(Base, TimestampMixin):
 # ── Scheduler bookkeeping ────────────────────────────────────────────
 
 
+class PaperBet(Base, TimestampMixin):
+    """Virtual test bet auto-placed on the predicted winner at the model's fair
+    odds (bo3 has no market odds). Balance = start + Σ pnl over settled bets."""
+
+    __tablename__ = "paper_bets"
+    id: Mapped[uuid.UUID] = _pk()
+    prediction_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("predictions.id"), nullable=False, unique=True
+    )
+    match_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("matches.id"), nullable=False)
+    selection_team_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("teams.id"))
+    stake: Mapped[float] = mapped_column(Numeric, nullable=False)
+    odds: Mapped[float] = mapped_column(Numeric, nullable=False)
+    result: Mapped[str | None] = mapped_column(Text)  # won / lost
+    pnl: Mapped[float | None] = mapped_column(Numeric)
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Outbox(Base, TimestampMixin):
+    """Durable Telegram queue — messages that failed to send (proxy down) land
+    here and a scheduler job resends them, so nothing is lost on an outage."""
+
+    __tablename__ = "outbox"
+    id: Mapped[uuid.UUID] = _pk()
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    parse_mode: Mapped[str] = mapped_column(Text, default="HTML")
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class RuntimeConfig(Base, UpdatedMixin):
     """Cross-process runtime overrides (e.g. model chosen via the /model bot
     command). Read by the LLM client; falls back to .env when unset."""

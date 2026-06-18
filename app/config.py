@@ -72,6 +72,12 @@ class Settings(BaseSettings):
     daily_review_model_tier: str = "chat"
     daily_review_hour_utc: int = 21
 
+    # ── Paper betting (test balance) ─────────────────────────────────
+    # No market odds from bo3 → bet at the model's fair odds (1/prob) on the
+    # predicted winner. Balance = start + Σ pnl. Pure calibration test.
+    paper_start_balance: float = 1000.0
+    paper_stake: float = 10.0
+
     # Scheduling (minutes)
     news_collect_interval_minutes: int = 30
     match_schedule_interval_minutes: int = 60

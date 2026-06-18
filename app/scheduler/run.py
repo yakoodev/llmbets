@@ -21,6 +21,7 @@ from app.postmortem.daily_review import run_daily_review
 from app.prediction.elo import rebuild_ratings
 from app.prediction.engine import predict_upcoming, repredict_on_critical_news
 from app.processing.pipeline import run_news_pipeline
+from app.telegram.outbox import drain as drain_outbox
 
 logging.basicConfig(level=settings.log_level)
 log = logging.getLogger("scheduler")
@@ -85,6 +86,7 @@ def build_scheduler() -> AsyncIOScheduler:
         "interval",
         minutes=20,
     )
+    sched.add_job(_job(drain_outbox, "outbox"), "interval", minutes=3)
     sched.add_job(
         _job(collect_player_news, "player_news"), "interval", hours=3
     )

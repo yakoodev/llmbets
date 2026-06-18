@@ -31,6 +31,7 @@ log = logging.getLogger("postmortem")
 
 
 async def settle_predictions(notify: bool = True) -> int:
+    from app.paper import place_paper_bet
     from app.telegram.formatters import format_results_summary
     from app.telegram.notify import send_message
 
@@ -62,6 +63,7 @@ async def settle_predictions(notify: bool = True) -> int:
             pred.brier_score = round((pa - outcome_a) ** 2, 4)
             pred.was_correct = pred.predicted_winner_team_id == match.winner_team_id
             pred.settled_at = datetime.now(timezone.utc)
+            await place_paper_bet(session, pred)
             team_a = await session.get(Team, match.team_a_id)
             team_b = await session.get(Team, match.team_b_id)
             winner = await session.get(Team, match.winner_team_id)

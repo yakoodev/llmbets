@@ -81,6 +81,7 @@ async def cmd_help(message: Message) -> None:
         "🎯 /predictions — последние прогнозы\n"
         "📊 /results — итоги сыгранных матчей\n"
         "📈 /accuracy — точность модели\n"
+        "💰 /balance — тестовый баланс\n"
         "🏅 /top — топ команд по Elo\n"
         "🩺 /status — состояние системы\n"
         "🧠 /model — показать/сменить модель LLM\n"
@@ -354,6 +355,16 @@ async def cmd_accuracy(message: Message) -> None:
     )
 
 
+@dp.message(Command("balance"))
+async def cmd_balance(message: Message) -> None:
+    if not _authorized(message):
+        return
+    from app.paper import balance
+    from app.telegram.formatters import format_balance
+
+    await _reply(message, format_balance(await balance()))
+
+
 @dp.message(Command("top"))
 async def cmd_top(message: Message) -> None:
     if not _authorized(message):
@@ -387,6 +398,7 @@ async def _set_commands(bot: Bot) -> None:
             BotCommand(command="predictions", description="Последние прогнозы"),
             BotCommand(command="results", description="Итоги сыгранных"),
             BotCommand(command="accuracy", description="Точность модели"),
+            BotCommand(command="balance", description="Тестовый баланс"),
             BotCommand(command="top", description="Топ команд по Elo"),
             BotCommand(command="status", description="Состояние системы"),
             BotCommand(command="model", description="Сменить модель LLM"),
