@@ -85,6 +85,7 @@ async def settle_predictions(notify: bool = True) -> int:
 
 
 async def run_postmortems(limit: int = 20, notify: bool = True) -> int:
+    from app.telegram.formatters import format_postmortem
     from app.telegram.notify import send_message
 
     prompt = load_prompt("postmortem_analyzer")
@@ -151,6 +152,10 @@ async def run_postmortems(limit: int = 20, notify: bool = True) -> int:
             )
             await session.commit()
             done += 1
+            if notify:
+                await send_message(
+                    format_postmortem(team_a, team_b, winner, pred, data)
+                )
     log.info("run_postmortems: created %d", done)
     return done
 

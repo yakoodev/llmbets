@@ -160,6 +160,34 @@ def format_news_digest(entries: list[dict], collected: int, processed: int) -> s
     return head + "\n\n<blockquote expandable>" + "\n".join(rows) + "</blockquote>"
 
 
+def format_postmortem(team_a, team_b, winner, pred, data: dict) -> str:
+    """Per-match LLM error analysis — its reasoning, in an expandable quote."""
+    on_a = pred.predicted_winner_team_id == team_a.id
+    predicted = team_a.name if on_a else team_b.name
+    prob = float(pred.team_a_probability if on_a else pred.team_b_probability) * 100
+    mark = "✅" if pred.was_correct else "❌"
+    head = [
+        f"🧠 <b>Разбор: {team_name(team_a.name)} vs {team_name(team_b.name)}</b>",
+        f"{mark} ставили на <b><u>{team_name(predicted)}</u></b> {prob:.0f}%  ·  "
+        f"победил {team_name(winner.name)}",
+    ]
+    detail = []
+    if data.get("suspected_failure_reasons"):
+        detail += ["<b>🔍 Возможные причины:</b>", _bullets(data["suspected_failure_reasons"])]
+    if data.get("data_quality_issues"):
+        detail += ["", "<b>⚠️ Проблемы данных:</b>", _bullets(data["data_quality_issues"])]
+    if data.get("model_improvement_hypotheses"):
+        detail += ["", "<b>💡 Гипотезы улучшения:</b>", _bullets(data["model_improvement_hypotheses"])]
+    conf = data.get("confidence_in_diagnosis")
+    try:
+        if conf is not None:
+            detail += ["", f"<i>Уверенность в диагнозе: {float(conf):.2f}</i>"]
+    except (TypeError, ValueError):
+        pass
+    body = "<blockquote expandable>" + "\n".join(detail) + "</blockquote>" if detail else ""
+    return "\n".join(head) + ("\n\n" + body if body else "")
+
+
 def format_daily_review(r: dict) -> str:
     c = r.get("conclusions") or {}
     acc = (r.get("accuracy") or 0) * 100
