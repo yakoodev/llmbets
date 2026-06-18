@@ -42,7 +42,10 @@ async def settle_predictions(notify: bool = True) -> int:
                 .join(Match, Match.id == Prediction.match_id)
                 .where(
                     Prediction.was_correct.is_(None),
-                    Match.status == "finished",
+                    # PandaScore free tier often marks played matches "canceled"
+                    # (forfeit/walkover) yet they carry a winner — settle on any
+                    # decided result, not just status=="finished".
+                    Match.status.in_(["finished", "canceled"]),
                     Match.winner_team_id.isnot(None),
                 )
             )

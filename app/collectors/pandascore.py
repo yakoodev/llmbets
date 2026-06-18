@@ -244,26 +244,37 @@ async def collect_rosters() -> int:
 
 
 async def collect_results() -> int:
-    """Fetch recently finished matches; settle winners/scores for tracked matches."""
+    """Resolve outcomes for OUR overdue matches by fetching each directly.
+
+    /past pagination buries our specific matches among masses of others, so we
+    query each tracked match that's past its start time but still unresolved via
+    /matches/{id} (the /csgo/matches/{id} route is 403 on the free tier)."""
+    now = datetime.now(timezone.utc)
     updated = 0
     async with PandaScoreClient() as ps, SessionLocal() as session:
-        matches = await ps.get(
-            f"{CS2_PATH}/past",
-            {"per_page": 100, "page": 1, "sort": "-end_at"},
-        )
-        for m in matches:
-            ext_id = str(m["id"])
-            existing = await session.scalar(
+        overdue = list(
+            await session.scalars(
                 select(Match).where(
-                    Match.external_id == ext_id, Match.source == "pandascore"
+                    Match.source == "pandascore",
+                    Match.external_id.isnot(None),
+                    Match.status.in_(["upcoming", "live"]),
+                    Match.scheduled_at < now,
                 )
             )
-            if existing is None:
-                continue  # only settle matches we already track
-            if await _upsert_match(session, m):
+        )
+        for match in overdue:
+            try:
+                data = await ps.get(f"/matches/{match.external_id}")
+            except Exception as e:  # noqa: BLE001
+                log.warning("result fetch failed for %s: %s", match.external_id, e)
+                continue
+            m = data[0] if isinstance(data, list) else data
+            if not isinstance(m, dict) or "id" not in m:
+                continue
+            if await _upsert_match(session, m, ignore_tier=True):
                 updated += 1
         await session.commit()
-    log.info("collect_results: settled %d matches", updated)
+    log.info("collect_results: resolved %d overdue matches", updated)
     return updated
 
 
