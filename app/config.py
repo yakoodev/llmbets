@@ -77,7 +77,7 @@ class Settings(BaseSettings):
     # predicted winner. Balance = start + Σ pnl. Pure calibration test.
     paper_start_balance: float = 1000.0
     # Stake = this fraction of the CURRENT balance per value bet (compounds).
-    paper_stake_pct: float = 0.02
+    paper_stake_pct: float = 0.10
     # Odds provider: "mock" (test polygon — prices off Elo + vig) or a real one
     # later. odds_margin = bookmaker overround/vig. min_edge = value threshold:
     # only paper-bet when model prob exceeds market implied prob by this much.
