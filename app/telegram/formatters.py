@@ -51,10 +51,19 @@ def _side(name: str, pct: float, fav: bool) -> str:
     return f"{team_name(name)} {pct:.0f}%"
 
 
-def prediction_line(team_a, team_b, pa, pb, when, risk, settled=None) -> str:
+def _line_side(name: str, pct: float, odds, fav: bool) -> str:
+    txt = f"{team_name(name)} {pct:.0f}%"
+    if odds:
+        txt += f" <i>({float(odds):.2f})</i>"
+    return f"<b><u>{txt}</u></b>" if fav else txt
+
+
+def prediction_line(
+    team_a, team_b, pa, pb, when, risk, settled=None, odds_a=None, odds_b=None
+) -> str:
     fav_a = pa >= pb
-    a = _side(team_a, pa * 100, fav_a)
-    b = _side(team_b, pb * 100, not fav_a)
+    a = _line_side(team_a, pa * 100, odds_a, fav_a)
+    b = _line_side(team_b, pb * 100, odds_b, not fav_a)
     mark = ""
     if settled is True:
         mark = "  ✅"
@@ -78,6 +87,7 @@ def format_prediction_list(title: str, items: list[dict], empty: str) -> str:
                 prediction_line(
                     it["a"], it["b"], it["pa"], it["pb"], it["when"],
                     it.get("risk"), it.get("settled"),
+                    it.get("odds_a"), it.get("odds_b"),
                 )
             )
     return "\n".join(out)

@@ -187,6 +187,7 @@ async def _items(session, rows) -> list[dict]:
     items = []
     for pred, match in rows:
         a, b = await _team_names(session, match)
+        odds = pred.fair_odds or {}
         items.append(
             {
                 "a": a,
@@ -196,6 +197,8 @@ async def _items(session, rows) -> list[dict]:
                 "when": match.scheduled_at,
                 "risk": pred.risk_level,
                 "settled": pred.was_correct,
+                "odds_a": odds.get("market_team_a"),
+                "odds_b": odds.get("market_team_b"),
             }
         )
     return items
