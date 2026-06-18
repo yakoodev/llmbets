@@ -18,11 +18,11 @@ from aiogram.types import BotCommand, Message
 from sqlalchemy import func, select
 
 from app.config import settings
-from app.db.models import Match, NewsEvent, NewsItem, Prediction, Team
+from app.db.models import Match, NewsEvent, NewsItem, Prediction, Team, TeamRating
 from app.db.session import SessionLocal
 from app.llm.client import llm
 from app.runtime_config import get_config, set_config
-from app.telegram.formatters import esc, prediction_line
+from app.telegram.formatters import esc, format_prediction_list, format_results_summary
 
 logging.basicConfig(level=settings.log_level)
 log = logging.getLogger("bot")
@@ -69,14 +69,19 @@ async def cmd_start(message: Message) -> None:
 async def cmd_help(message: Message) -> None:
     await _reply(
         message,
-        "<b>Команды</b>\n"
-        "/today — прогнозы на матчи сегодня\n"
-        "/upcoming — ближайшие матчи (48ч)\n"
-        "/predictions — последние прогнозы\n"
-        "/status — состояние системы\n"
-        "/model — показать/сменить модель LLM\n"
-        "/start — chat_id\n\n"
-        "<i>Прогнозы и сверка результатов приходят автоматически.</i>",
+        "🤖 <b>Команды</b>\n\n"
+        "📅 /today — прогнозы на сегодня (МСК)\n"
+        "📅 /tomorrow — прогнозы на завтра\n"
+        "⏳ /upcoming — ближайшие 48 часов\n"
+        "🎯 /predictions — последние прогнозы\n"
+        "📊 /results — итоги сыгранных матчей\n"
+        "📈 /accuracy — точность модели\n"
+        "🏅 /top — топ команд по Elo\n"
+        "🩺 /status — состояние системы\n"
+        "🧠 /model — показать/сменить модель LLM\n"
+        "🆔 /start — chat_id\n\n"
+        "<i>Время — МСК. Прогнозы и сверка результатов приходят автоматически. "
+        "🏆 — предсказанный победитель.</i>",
     )
 
 
@@ -162,41 +167,67 @@ async def cmd_model(message: Message) -> None:
     )
 
 
-async def _predictions_between(session, start, end):
-    rows = list(
-        await session.execute(
-            select(Prediction, Match)
-            .join(Match, Match.id == Prediction.match_id)
-            .where(Match.scheduled_at >= start, Match.scheduled_at < end)
-            .order_by(Match.scheduled_at.asc())
-        )
+def _msk_day_bounds(offset: int = 0):
+    """UTC bounds for the MSK calendar day `offset` days from today."""
+    now = datetime.now(timezone.utc)
+    msk_mid = (now + timedelta(hours=3)).replace(
+        hour=0, minute=0, second=0, microsecond=0
     )
-    lines = []
-    for pred, match in rows[:25]:
+    start = msk_mid - timedelta(hours=3) + timedelta(days=offset)
+    return start, start + timedelta(days=1)
+
+
+async def _items(session, rows) -> list[dict]:
+    items = []
+    for pred, match in rows:
         a, b = await _team_names(session, match)
-        lines.append(
-            prediction_line(
-                a, b,
-                float(pred.team_a_probability),
-                float(pred.team_b_probability),
-                match.scheduled_at,
-                pred.risk_level,
-            )
+        items.append(
+            {
+                "a": a,
+                "b": b,
+                "pa": float(pred.team_a_probability),
+                "pb": float(pred.team_b_probability),
+                "when": match.scheduled_at,
+                "risk": pred.risk_level,
+                "settled": pred.was_correct,
+            }
         )
-    return lines
+    return items
+
+
+def _between(start, end):
+    return (
+        select(Prediction, Match)
+        .join(Match, Match.id == Prediction.match_id)
+        .where(Match.scheduled_at >= start, Match.scheduled_at < end)
+        .order_by(Match.scheduled_at.asc())
+    )
 
 
 @dp.message(Command("today"))
 async def cmd_today(message: Message) -> None:
     if not _authorized(message):
         return
-    start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    start, end = _msk_day_bounds(0)
     async with SessionLocal() as s:
-        lines = await _predictions_between(s, start, start + timedelta(days=1))
-    if not lines:
-        await _reply(message, "📅 На сегодня прогнозов пока нет.")
+        items = await _items(s, list(await s.execute(_between(start, end))))
+    await _reply(
+        message,
+        format_prediction_list("📅 Прогнозы на сегодня (МСК)", items, "На сегодня прогнозов нет."),
+    )
+
+
+@dp.message(Command("tomorrow"))
+async def cmd_tomorrow(message: Message) -> None:
+    if not _authorized(message):
         return
-    await _reply(message, f"📅 <b>Прогнозы на сегодня</b> ({len(lines)})\n\n" + "\n".join(lines))
+    start, end = _msk_day_bounds(1)
+    async with SessionLocal() as s:
+        items = await _items(s, list(await s.execute(_between(start, end))))
+    await _reply(
+        message,
+        format_prediction_list("📅 Прогнозы на завтра (МСК)", items, "На завтра прогнозов пока нет."),
+    )
 
 
 @dp.message(Command("upcoming"))
@@ -205,36 +236,23 @@ async def cmd_upcoming(message: Message) -> None:
         return
     now = datetime.now(timezone.utc)
     async with SessionLocal() as s:
-        matches = list(
-            await s.scalars(
-                select(Match)
+        rows = list(
+            await s.execute(
+                select(Prediction, Match)
+                .join(Match, Match.id == Prediction.match_id)
                 .where(
                     Match.status == "upcoming",
-                    Match.team_a_id.isnot(None),
-                    Match.team_b_id.isnot(None),
                     Match.scheduled_at >= now,
                     Match.scheduled_at < now + timedelta(hours=48),
                 )
                 .order_by(Match.scheduled_at.asc())
             )
         )
-        lines = []
-        for m in matches[:25]:
-            a, b = await _team_names(s, m)
-            pred = await s.scalar(
-                select(Prediction).where(Prediction.match_id == m.id).limit(1)
-            )
-            when = m.scheduled_at.strftime("%d.%m %H:%M") if m.scheduled_at else "—"
-            if pred:
-                pa = float(pred.team_a_probability) * 100
-                pb = float(pred.team_b_probability) * 100
-                lines.append(f"🕒 {when} · <b>{esc(a)}</b> {pa:.0f}% — <b>{esc(b)}</b> {pb:.0f}%")
-            else:
-                lines.append(f"🕒 {when} · {esc(a)} vs {esc(b)} <i>(скоро)</i>")
-    if not lines:
-        await _reply(message, "⏳ Ближайших матчей (48ч) с составами нет.")
-        return
-    await _reply(message, f"⏳ <b>Ближайшие матчи (48ч)</b>\n\n" + "\n".join(lines))
+        items = await _items(s, rows)
+    await _reply(
+        message,
+        format_prediction_list("⏳ Ближайшие прогнозы (48ч, МСК)", items, "Ближайших спрогнозированных матчей нет."),
+    )
 
 
 @dp.message(Command("predictions"))
@@ -247,37 +265,124 @@ async def cmd_predictions(message: Message) -> None:
                 select(Prediction, Match)
                 .join(Match, Match.id == Prediction.match_id)
                 .order_by(Prediction.created_at.desc())
+                .limit(15)
+            )
+        )
+        items = await _items(s, rows)
+    await _reply(message, format_prediction_list("🎯 Последние прогнозы", items, "Прогнозов пока нет."))
+
+
+@dp.message(Command("results"))
+async def cmd_results(message: Message) -> None:
+    if not _authorized(message):
+        return
+    async with SessionLocal() as s:
+        rows = list(
+            await s.execute(
+                select(Prediction, Match)
+                .join(Match, Match.id == Prediction.match_id)
+                .where(Prediction.was_correct.isnot(None))
+                .order_by(Prediction.settled_at.desc())
                 .limit(12)
             )
         )
-        lines = []
+        results = []
         for pred, match in rows:
             a, b = await _team_names(s, match)
-            mark = ""
-            if pred.was_correct is not None:
-                mark = " ✅" if pred.was_correct else " ❌"
-            lines.append(
-                prediction_line(
-                    a, b,
-                    float(pred.team_a_probability),
-                    float(pred.team_b_probability),
-                    match.scheduled_at,
-                    pred.risk_level,
-                )
-                + mark
+            winner = (
+                await s.get(Team, match.winner_team_id)
+                if match.winner_team_id
+                else None
             )
-    if not lines:
-        await _reply(message, "Прогнозов пока нет.")
+            on_a = pred.predicted_winner_team_id == match.team_a_id
+            results.append(
+                {
+                    "team_a": a,
+                    "team_b": b,
+                    "winner": winner.name if winner else "—",
+                    "predicted": a if on_a else b,
+                    "prob": float(pred.team_a_probability if on_a else pred.team_b_probability) * 100,
+                    "correct": pred.was_correct,
+                    "brier": float(pred.brier_score or 0),
+                }
+            )
+    if not results:
+        await _reply(message, "📊 Сыгранных прогнозов пока нет.")
         return
-    await _reply(message, "🎯 <b>Последние прогнозы</b>\n\n" + "\n".join(lines))
+    await _reply(message, format_results_summary(results))
+
+
+@dp.message(Command("accuracy"))
+async def cmd_accuracy(message: Message) -> None:
+    if not _authorized(message):
+        return
+    async with SessionLocal() as s:
+        total = await s.scalar(select(func.count()).select_from(Prediction))
+        settled = await s.scalar(
+            select(func.count()).select_from(Prediction).where(
+                Prediction.was_correct.isnot(None)
+            )
+        )
+        correct = await s.scalar(
+            select(func.count()).select_from(Prediction).where(
+                Prediction.was_correct.is_(True)
+            )
+        )
+        avg_brier = await s.scalar(
+            select(func.avg(Prediction.brier_score)).where(
+                Prediction.brier_score.isnot(None)
+            )
+        )
+    if not settled:
+        await _reply(
+            message,
+            "📈 Сыгранных прогнозов пока нет — точность появится после первых матчей.",
+        )
+        return
+    await _reply(
+        message,
+        "📈 <b>Точность модели</b>\n"
+        f"Всего прогнозов: <b>{total}</b>\n"
+        f"Сыграно: <b>{settled}</b>\n"
+        f"Угадано: <b>{correct}</b> (<b>{correct / settled * 100:.0f}%</b>)\n"
+        f"Средний Brier: <b>{float(avg_brier or 0):.3f}</b> <i>(меньше — лучше)</i>",
+    )
+
+
+@dp.message(Command("top"))
+async def cmd_top(message: Message) -> None:
+    if not _authorized(message):
+        return
+    async with SessionLocal() as s:
+        rows = list(
+            await s.execute(
+                select(TeamRating, Team)
+                .join(Team, Team.id == TeamRating.team_id)
+                .order_by(TeamRating.elo.desc())
+                .limit(15)
+            )
+        )
+    if not rows:
+        await _reply(message, "🏅 Рейтинги ещё не посчитаны.")
+        return
+    lines = ["🏅 <b>Топ команд по Elo</b>"]
+    for i, (r, t) in enumerate(rows, 1):
+        lines.append(
+            f"{i}. <b>{esc(t.name)}</b> — {float(r.elo):.0f} <i>({r.matches_played} м.)</i>"
+        )
+    await _reply(message, "\n".join(lines))
 
 
 async def _set_commands(bot: Bot) -> None:
     await bot.set_my_commands(
         [
-            BotCommand(command="today", description="Прогнозы на сегодня"),
-            BotCommand(command="upcoming", description="Ближайшие матчи (48ч)"),
+            BotCommand(command="today", description="Прогнозы на сегодня (МСК)"),
+            BotCommand(command="tomorrow", description="Прогнозы на завтра (МСК)"),
+            BotCommand(command="upcoming", description="Ближайшие 48ч"),
             BotCommand(command="predictions", description="Последние прогнозы"),
+            BotCommand(command="results", description="Итоги сыгранных"),
+            BotCommand(command="accuracy", description="Точность модели"),
+            BotCommand(command="top", description="Топ команд по Elo"),
             BotCommand(command="status", description="Состояние системы"),
             BotCommand(command="model", description="Сменить модель LLM"),
             BotCommand(command="help", description="Список команд"),

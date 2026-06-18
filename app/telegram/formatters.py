@@ -1,29 +1,37 @@
 """Render predictions/results/news into Telegram HTML messages.
 
-Telegram HTML: <b> <i> <code> <a> and <blockquote expandable> (collapsible).
-Long reasoning goes into an expandable blockquote so messages stay compact.
-All dynamic text is escaped.
+Times shown in MSK (UTC+3, no DST). Favourite (predicted winner) is highlighted
+with 🏆 + bold. Long reasoning goes into an expandable blockquote. All dynamic
+text is escaped.
 """
 from __future__ import annotations
 
 import html
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.db.models import Match, Prediction, Team
+
+MSK = timedelta(hours=3)
 
 
 def esc(text) -> str:
     return html.escape(str(text)) if text is not None else ""
 
 
-def _bars(pa: float, pb: float) -> str:
-    """Tiny visual bar for the favourite side."""
-    filled = round(pa / 10)
-    return "▓" * filled + "░" * (10 - filled)
+def fmt_when(dt: datetime | None) -> str:
+    return (dt + MSK).strftime("%d.%m %H:%M МСК") if dt else "—"
 
 
-def _fmt_when(dt: datetime | None) -> str:
-    return dt.strftime("%d.%m %H:%M UTC") if dt else "—"
+def fmt_day(dt: datetime | None) -> str:
+    return (dt + MSK).strftime("%d.%m") if dt else "—"
+
+
+def fmt_time(dt: datetime | None) -> str:
+    return (dt + MSK).strftime("%H:%M") if dt else "--:--"
+
+
+def _risk_emoji(risk) -> str:
+    return {"low": "🟢", "medium": "🟡", "high": "🔴"}.get(risk, "⚪")
 
 
 def _bullets(items, limit: int = 5) -> str:
@@ -31,39 +39,71 @@ def _bullets(items, limit: int = 5) -> str:
     return "\n".join(out) if out else "• —"
 
 
+def _side(name: str, pct: float, fav: bool) -> str:
+    if fav:
+        return f"🏆 <b>{esc(name)} {pct:.0f}%</b>"
+    return f"{esc(name)} {pct:.0f}%"
+
+
+def prediction_line(team_a, team_b, pa, pb, when, risk, settled=None) -> str:
+    fav_a = pa >= pb
+    a = _side(team_a, pa * 100, fav_a)
+    b = _side(team_b, pb * 100, not fav_a)
+    mark = ""
+    if settled is True:
+        mark = "  ✅"
+    elif settled is False:
+        mark = "  ❌"
+    return f"{_risk_emoji(risk)} <code>{fmt_time(when)}</code>  {a}  —  {b}{mark}"
+
+
+def format_prediction_list(title: str, items: list[dict], empty: str) -> str:
+    """items: dicts with a,b,pa,pb,when,risk[,settled]. Grouped by MSK day."""
+    if not items:
+        return f"<b>{esc(title)}</b>\n\n{esc(empty)}"
+    by_day: dict[str, list[dict]] = {}
+    for it in items:
+        by_day.setdefault(fmt_day(it["when"]), []).append(it)
+    out = [f"<b>{esc(title)}</b>"]
+    for day in by_day:
+        out.append(f"\n📅 <b>{esc(day)}</b>")
+        for it in by_day[day]:
+            out.append(
+                prediction_line(
+                    it["a"], it["b"], it["pa"], it["pb"], it["when"],
+                    it.get("risk"), it.get("settled"),
+                )
+            )
+    return "\n".join(out)
+
+
 def format_forecast(match: Match, team_a: Team, team_b: Team, pred: Prediction) -> str:
     pa = float(pred.team_a_probability) * 100
     pb = float(pred.team_b_probability) * 100
-    a, b = esc(team_a.name), esc(team_b.name)
-    fav = a if pred.team_a_probability >= pred.team_b_probability else b
+    fav_a = pred.team_a_probability >= pred.team_b_probability
     exp = pred.explanation or {}
-    risk_emoji = {"low": "🟢", "medium": "🟡", "high": "🔴"}.get(pred.risk_level, "⚪")
 
     head = [
         "🎯 <b>CS2 Прогноз</b>",
         "",
-        f"<b>{a}</b>  vs  <b>{b}</b>",
-        f"🏆 {esc(match.tournament_name or '—')}",
-        f"🎮 {esc((match.format or '—').upper())} · 🕒 {_fmt_when(match.scheduled_at)}",
+        f"{_side(team_a.name, pa, fav_a)}",
+        f"{_side(team_b.name, pb, not fav_a)}",
         "",
-        f"<code>{esc(f'{team_a.name[:14]:<14}')}</code> <b>{pa:4.0f}%</b>",
-        f"<code>{esc(f'{team_b.name[:14]:<14}')}</code> <b>{pb:4.0f}%</b>",
-        "",
-        f"⭐ Фаворит: <b>{fav}</b>",
-        f"{risk_emoji} Confidence <b>{float(pred.confidence):.2f}</b> · Risk <b>{esc(pred.risk_level)}</b>",
+        f"🏆 <b>{esc(match.tournament_name or '—')}</b>",
+        f"🎮 {esc((match.format or '—').upper())}  ·  🕒 {fmt_when(match.scheduled_at)}",
+        f"{_risk_emoji(pred.risk_level)} Confidence <b>{float(pred.confidence):.2f}</b>"
+        f"  ·  Risk <b>{esc(pred.risk_level)}</b>",
     ]
     if exp.get("short_summary"):
         head += ["", f"<i>{esc(exp['short_summary'])}</i>"]
 
-    # long reasoning hidden in an expandable quote
     detail = ["<b>Почему:</b>", _bullets(exp.get("main_reasons")),
               "", "<b>Риски:</b>", _bullets(exp.get("risks"))]
     if exp.get("data_quality_warnings"):
         detail += ["", "<b>⚠️ Качество данных:</b>", _bullets(exp.get("data_quality_warnings"))]
     quote = "<blockquote expandable>" + "\n".join(detail) + "</blockquote>"
 
-    tail = ["", "<i>Аналитический прогноз, не финансовый совет.</i>"]
-    return "\n".join(head) + "\n\n" + quote + "\n" + "\n".join(tail)
+    return "\n".join(head) + "\n\n" + quote + "\n\n<i>Не финансовый совет.</i>"
 
 
 def format_results_summary(results: list[dict]) -> str:
@@ -73,20 +113,22 @@ def format_results_summary(results: list[dict]) -> str:
     avg_brier = (sum(r["brier"] for r in results) / n) if n else 0
     lines = [
         "📊 <b>Сверка результатов</b>",
-        f"✅ <b>{correct}</b> / ❌ <b>{n - correct}</b> · точность <b>{acc:.0f}%</b> · ср. Brier <b>{avg_brier:.3f}</b>",
+        f"✅ <b>{correct}</b> / ❌ <b>{n - correct}</b>  ·  точность <b>{acc:.0f}%</b>"
+        f"  ·  ср. Brier <b>{avg_brier:.3f}</b>",
+        "",
     ]
     rows = []
     for r in results:
         mark = "✅" if r["correct"] else "❌"
         rows.append(
-            f"{mark} <b>{esc(r['winner'])}</b> "
+            f"{mark} 🏆 <b>{esc(r['winner'])}</b> "
             f"<i>({esc(r['team_a'])} vs {esc(r['team_b'])})</i> — "
             f"ставили на {esc(r['predicted'])} {r['prob']:.0f}%"
         )
     body = "\n".join(rows)
     if n > 6:
         body = f"<blockquote expandable>{body}</blockquote>"
-    return "\n".join(lines) + "\n\n" + body
+    return "\n".join(lines) + body
 
 
 def format_news_digest(entries: list[dict], collected: int, processed: int) -> str:
@@ -109,11 +151,7 @@ def format_news_digest(entries: list[dict], collected: int, processed: int) -> s
             where.append(f"матчей: {e['matches']}")
         where_str = (" → " + "; ".join(where)) if where else ""
         rows.append(f"{tag}<b>[{esc(e['event_type'])}]</b> {esc(e.get('summary') or '')}{where_str}")
-    body = "\n".join(rows)
-    return head + "\n\n<blockquote expandable>" + body + "</blockquote>"
-
-
-# ── compact lines for bot commands ───────────────────────────────────
+    return head + "\n\n<blockquote expandable>" + "\n".join(rows) + "</blockquote>"
 
 
 def format_daily_review(r: dict) -> str:
@@ -122,8 +160,8 @@ def format_daily_review(r: dict) -> str:
     head = [
         "🧠 <b>Дневной разбор</b>",
         f"📅 {esc(r.get('date'))}",
-        f"Сверено <b>{r.get('settled', 0)}</b> · верных <b>{r.get('correct', 0)}</b> "
-        f"· точность <b>{acc:.0f}%</b> · ср. Brier <b>{r.get('avg_brier', 0):.3f}</b>",
+        f"Сверено <b>{r.get('settled', 0)}</b> · верных <b>{r.get('correct', 0)}</b>"
+        f"  ·  точность <b>{acc:.0f}%</b>  ·  ср. Brier <b>{r.get('avg_brier', 0):.3f}</b>",
     ]
     detail = []
     if c.get("what_worked"):
@@ -133,16 +171,6 @@ def format_daily_review(r: dict) -> str:
     if c.get("why"):
         detail += ["", "<b>🤔 Почему:</b>", _bullets(c["why"])]
     if c.get("lessons"):
-        detail += ["", "<b>📌 Уроки на будущее:</b>", _bullets(c["lessons"])]
+        detail += ["", "<b>📌 Уроки:</b>", _bullets(c["lessons"])]
     body = "<blockquote expandable>" + "\n".join(detail) + "</blockquote>" if detail else ""
     return "\n".join(head) + ("\n\n" + body if body else "")
-
-
-def prediction_line(team_a: str, team_b: str, pa: float, pb: float, when, risk) -> str:
-    risk_emoji = {"low": "🟢", "medium": "🟡", "high": "🔴"}.get(risk, "⚪")
-    fav_a = pa >= pb
-    a = f"<b>{esc(team_a)}</b>" if fav_a else esc(team_a)
-    b = f"<b>{esc(team_b)}</b>" if not fav_a else esc(team_b)
-    return (
-        f"{risk_emoji} {_fmt_when(when)} · {a} {pa*100:.0f}% — {b} {pb*100:.0f}%"
-    )

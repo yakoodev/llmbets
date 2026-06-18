@@ -321,6 +321,39 @@ async def collect_past(pages: int = 30) -> int:
     return saved
 
 
+async def resolve_placeholders() -> int:
+    """Re-fetch names for teams left as 'team-<id>' when a batch lookup missed."""
+    fixed = 0
+    async with Bo3Client() as client, SessionLocal() as session:
+        teams = list(
+            await session.scalars(
+                select(Team).where(Team.name.like("team-%"), Team.bo3_id.isnot(None))
+            )
+        )
+        ids = [t.bo3_id for t in teams]
+        info: dict = {}
+        for i in range(0, len(ids), 50):
+            chunk = ids[i : i + 50]
+            try:
+                data = await client.get(
+                    TEAMS, {"filter[teams.id][in]": ",".join(chunk), "page[limit]": 50}
+                )
+                for t in data.get("results", []):
+                    info[str(t["id"])] = t
+            except Exception as e:  # noqa: BLE001
+                log.warning("placeholder batch failed: %s", e)
+        for t in teams:
+            row = info.get(t.bo3_id)
+            if row and row.get("name"):
+                t.name = row["name"]
+                if row.get("rank") is not None:
+                    t.rank = row["rank"]
+                fixed += 1
+        await session.commit()
+    log.info("resolve_placeholders: fixed %d team names", fixed)
+    return fixed
+
+
 async def _main() -> None:
     logging.basicConfig(level=settings.log_level)
     cmd = sys.argv[1] if len(sys.argv) > 1 else "upcoming"
@@ -331,6 +364,8 @@ async def _main() -> None:
     elif cmd == "backfill":
         pages = int(sys.argv[2]) if len(sys.argv) > 2 else 30
         print(f"Backfilled {await collect_past(pages)} finished matches.")
+    elif cmd == "fix-teams":
+        print(f"Fixed {await resolve_placeholders()} placeholder team names.")
     else:
         print(f"Unknown command: {cmd!r}")
 
