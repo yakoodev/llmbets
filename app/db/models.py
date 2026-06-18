@@ -12,8 +12,11 @@ import uuid
 from datetime import datetime
 
 from pgvector.sqlalchemy import HALFVEC
+from datetime import date as date_type
+
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     ForeignKey,
     Integer,
@@ -354,6 +357,24 @@ class Prediction(Base, TimestampMixin):
     brier_score: Mapped[float | None] = mapped_column(Numeric)
     settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DailyReview(Base, TimestampMixin):
+    """Once-a-day reflection over settled results — persistent self-memory.
+
+    conclusions = {"what_worked": [...], "what_failed": [...], "lessons": [...]}.
+    Lessons are fed back into future prediction explanations.
+    """
+
+    __tablename__ = "daily_reviews"
+    id: Mapped[uuid.UUID] = _pk()
+    review_date: Mapped[date_type] = mapped_column(Date, unique=True, nullable=False)
+    predictions_settled: Mapped[int] = mapped_column(Integer, default=0)
+    correct: Mapped[int] = mapped_column(Integer, default=0)
+    accuracy: Mapped[float | None] = mapped_column(Numeric)
+    avg_brier: Mapped[float | None] = mapped_column(Numeric)
+    conclusions: Mapped[dict | None] = mapped_column(JSONB)
+    raw_llm_output: Mapped[dict | None] = mapped_column(JSONB)
 
 
 class Postmortem(Base, TimestampMixin):

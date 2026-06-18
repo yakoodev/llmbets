@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     # Only predict matches starting within this many hours (don't burn tokens
     # forecasting the whole week ahead; matches get predicted as they approach).
     prediction_horizon_hours: int = 48
+    # Daily review runs once/day — strong model is fine (1 call/day).
+    daily_review_model_tier: str = "chat"
+    daily_review_hour_utc: int = 21
 
     # Scheduling (minutes)
     news_collect_interval_minutes: int = 30

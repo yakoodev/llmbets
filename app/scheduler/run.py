@@ -20,6 +20,7 @@ from app.collectors.pandascore import (
 from app.collectors.player_news import collect_player_news
 from app.config import settings
 from app.postmortem.analyzer import run_postmortems, settle_predictions
+from app.postmortem.daily_review import run_daily_review
 from app.prediction.elo import rebuild_ratings
 from app.prediction.engine import predict_upcoming, repredict_on_critical_news
 from app.processing.pipeline import run_news_pipeline
@@ -91,6 +92,12 @@ def build_scheduler() -> AsyncIOScheduler:
         _job(collect_player_news, "player_news"), "interval", hours=3
     )
     sched.add_job(_job(_daily_refresh, "daily_refresh"), "interval", hours=24)
+    sched.add_job(
+        _job(run_daily_review, "daily_review"),
+        "cron",
+        hour=settings.daily_review_hour_utc,
+        minute=0,
+    )
     return sched
 
 

@@ -116,7 +116,11 @@ async def predict_match(session, match: Match) -> Prediction | None:
     team_a = await session.get(Team, match.team_a_id)
     team_b = await session.get(Team, match.team_b_id)
     news = await _gather_news(session, match.id)
-    lessons = await _past_lessons(session, match.team_a_id, match.team_b_id)
+    from app.postmortem.daily_review import latest_lessons
+
+    lessons = (await latest_lessons(session)) + await _past_lessons(
+        session, match.team_a_id, match.team_b_id
+    )
 
     feature_snapshot = {
         "elo_a": round(ra, 1),

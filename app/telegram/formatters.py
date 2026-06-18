@@ -116,6 +116,28 @@ def format_news_digest(entries: list[dict], collected: int, processed: int) -> s
 # ── compact lines for bot commands ───────────────────────────────────
 
 
+def format_daily_review(r: dict) -> str:
+    c = r.get("conclusions") or {}
+    acc = (r.get("accuracy") or 0) * 100
+    head = [
+        "🧠 <b>Дневной разбор</b>",
+        f"📅 {esc(r.get('date'))}",
+        f"Сверено <b>{r.get('settled', 0)}</b> · верных <b>{r.get('correct', 0)}</b> "
+        f"· точность <b>{acc:.0f}%</b> · ср. Brier <b>{r.get('avg_brier', 0):.3f}</b>",
+    ]
+    detail = []
+    if c.get("what_worked"):
+        detail += ["<b>✅ Что зашло:</b>", _bullets(c["what_worked"])]
+    if c.get("what_failed"):
+        detail += ["", "<b>❌ Что не зашло:</b>", _bullets(c["what_failed"])]
+    if c.get("why"):
+        detail += ["", "<b>🤔 Почему:</b>", _bullets(c["why"])]
+    if c.get("lessons"):
+        detail += ["", "<b>📌 Уроки на будущее:</b>", _bullets(c["lessons"])]
+    body = "<blockquote expandable>" + "\n".join(detail) + "</blockquote>" if detail else ""
+    return "\n".join(head) + ("\n\n" + body if body else "")
+
+
 def prediction_line(team_a: str, team_b: str, pa: float, pb: float, when, risk) -> str:
     risk_emoji = {"low": "🟢", "medium": "🟡", "high": "🔴"}.get(risk, "⚪")
     fav_a = pa >= pb
