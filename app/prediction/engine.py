@@ -275,9 +275,9 @@ async def predict_upcoming(notify: bool = False) -> int:
                 team_a = await session.get(Team, m.team_a_id)
                 team_b = await session.get(Team, m.team_b_id)
                 text = format_forecast(m, team_a, team_b, pred)
-                await send_message(text)
-                pred.notified_at = datetime.now(timezone.utc)
-                await session.commit()
+                if await send_message(text):
+                    pred.notified_at = datetime.now(timezone.utc)
+                    await session.commit()
             count += 1
     log.info("predict_upcoming: created %d predictions", count)
     return count
@@ -345,9 +345,9 @@ async def repredict_on_critical_news(notify: bool = True) -> int:
                     "🔄 Обновлённый прогноз — свежая критичная новость\n\n"
                     + format_forecast(match, team_a, team_b, pred)
                 )
-                await send_message(text)
-                pred.notified_at = datetime.now(timezone.utc)
-                await session.commit()
+                if await send_message(text):
+                    pred.notified_at = datetime.now(timezone.utc)
+                    await session.commit()
             count += 1
     log.info("repredict_on_critical_news: refreshed %d predictions", count)
     return count

@@ -35,10 +35,8 @@ async def resolve_team(session, name: str) -> Team | None:
     )
     if alias:
         return await session.get(Team, alias.entity_id)
-    # loose contains as a last resort
-    for t in teams:
-        if norm and (norm in normalize(t.name) or normalize(t.name) in norm):
-            return t
+    # No loose substring fallback: it mislinks ("9z" → "9z Academy",
+    # "MOUZ" → "MOUZ NXT"), corrupting the news signal. Unresolved is safer.
     return None
 
 
