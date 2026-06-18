@@ -18,7 +18,15 @@ from aiogram.types import BotCommand, Message
 from sqlalchemy import func, select
 
 from app.config import settings
-from app.db.models import Match, NewsEvent, NewsItem, Prediction, Team, TeamRating
+from app.db.models import (
+    Match,
+    NewsEvent,
+    NewsItem,
+    Prediction,
+    SchedulerLock,
+    Team,
+    TeamRating,
+)
 from app.db.session import SessionLocal
 from app.llm.client import llm
 from app.runtime_config import get_config, set_config
@@ -116,14 +124,38 @@ async def cmd_status(message: Message) -> None:
                 NewsEvent.event_type != "irrelevant"
             )
         )
+        locks = list(await s.scalars(select(SchedulerLock)))
     acc = f"{correct / settled * 100:.0f}%" if settled else "—"
+
+    now = datetime.now(timezone.utc)
+
+    def _ago(dt) -> str:
+        if not dt:
+            return "не было"
+        mins = (now - dt).total_seconds() / 60
+        return f"{mins:.0f}м назад" if mins < 120 else f"{mins / 60:.1f}ч назад"
+
+    last_any = max((lk.last_finished_at for lk in locks if lk.last_finished_at), default=None)
+    if last_any and (now - last_any).total_seconds() < 1200:
+        health = f"🟢 активен ({_ago(last_any)})"
+    elif last_any:
+        health = f"🔴 молчит ({_ago(last_any)})"
+    else:
+        health = "🔴 ещё не отмечался"
+    jobs_txt = "\n".join(
+        f"• {esc(lk.job_name)}: {_ago(lk.last_finished_at)}"
+        for lk in sorted(locks, key=lambda x: x.job_name)
+    ) or "—"
+
     await _reply(
         message,
         "🩺 <b>Статус системы</b>\n"
         f"📅 Upcoming матчей: <b>{upcoming}</b>\n"
         f"🎯 Прогнозов: <b>{preds}</b> (сверено {settled}, точность {acc})\n"
         f"🗞 Новостей: <b>{news}</b> · значимых событий: <b>{events}</b>\n"
-        f"⚙️ Модель: <code>{esc(settings.explain_model_tier)}</code> · горизонт {settings.prediction_horizon_hours}ч",
+        f"⚙️ Модель: <code>{esc(settings.explain_model_tier)}</code> · горизонт {settings.prediction_horizon_hours}ч\n"
+        f"⏱ Планировщик: {health}\n"
+        f"<blockquote expandable>{jobs_txt}</blockquote>",
     )
 
 
