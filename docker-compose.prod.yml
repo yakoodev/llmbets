@@ -1,0 +1,56 @@
+# Production stack for the VPS. Trimmed vs dev: no redis/minio (unused), no
+# --reload, ports bound to localhost only. Code is bind-mounted from the cloned
+# repo → update with `git pull && docker compose -f docker-compose.prod.yml up -d`.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: cs2bot
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d cs2bot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    env_file: .env
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"  # localhost only — not exposed publicly
+
+  bot:
+    build: .
+    restart: unless-stopped
+    command: python -m app.telegram.bot
+    env_file: .env
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  scheduler:
+    build: .
+    restart: unless-stopped
+    command: python -m app.scheduler.run
+    env_file: .env
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
