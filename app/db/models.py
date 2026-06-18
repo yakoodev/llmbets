@@ -399,6 +399,24 @@ class Postmortem(Base, TimestampMixin):
 # ── Scheduler bookkeeping ────────────────────────────────────────────
 
 
+class OddsSnapshot(Base, TimestampMixin):
+    """Market odds for a match selection at a point in time (TZ §10.3).
+    bookmaker='mock' for the test polygon; real books plug in via OddsProvider."""
+
+    __tablename__ = "odds_snapshots"
+    id: Mapped[uuid.UUID] = _pk()
+    match_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("matches.id"), nullable=False)
+    bookmaker: Mapped[str] = mapped_column(Text, nullable=False)
+    selection_team_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("teams.id"), nullable=False
+    )
+    odds_decimal: Mapped[float] = mapped_column(Numeric, nullable=False)
+    implied_probability: Mapped[float | None] = mapped_column(Numeric)
+    captured_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class PaperBet(Base, TimestampMixin):
     """Virtual test bet auto-placed on the predicted winner at the model's fair
     odds (bo3 has no market odds). Balance = start + Σ pnl over settled bets."""

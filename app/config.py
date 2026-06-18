@@ -77,6 +77,12 @@ class Settings(BaseSettings):
     # predicted winner. Balance = start + Σ pnl. Pure calibration test.
     paper_start_balance: float = 1000.0
     paper_stake: float = 10.0
+    # Odds provider: "mock" (test polygon — prices off Elo + vig) or a real one
+    # later. odds_margin = bookmaker overround/vig. min_edge = value threshold:
+    # only paper-bet when model prob exceeds market implied prob by this much.
+    odds_provider: str = "mock"
+    odds_margin: float = 0.06
+    min_edge: float = 0.03
 
     # Scheduling (minutes)
     news_collect_interval_minutes: int = 30

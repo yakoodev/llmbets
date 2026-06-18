@@ -33,6 +33,7 @@ from app.db.models import (
 from app.db.session import SessionLocal
 from app.llm.client import llm
 from app.llm.prompts import load_prompt, render
+from app.odds import capture_odds
 from app.prediction.elo import BASE_ELO, expected_score
 from app.prediction.features import news_signal, recent_form
 
@@ -164,6 +165,13 @@ async def predict_match(session, match: Match) -> Prediction | None:
         explanation=explanation,
     )
     session.add(pred)
+    await session.flush()
+    odds = await capture_odds(session, match)
+    if odds:
+        pred.fair_odds = {
+            "market_team_a": odds.get(match.team_a_id, {}).get("odds"),
+            "market_team_b": odds.get(match.team_b_id, {}).get("odds"),
+        }
     await session.commit()
     log.info(
         "predicted %s vs %s -> %.0f%%/%.0f%% (%s)",

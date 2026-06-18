@@ -97,6 +97,14 @@ def format_forecast(match: Match, team_a: Team, team_b: Team, pred: Prediction) 
         "",
         f"🏟 <b>{esc(match.tournament_name or '—')}</b>",
         f"🎮 {esc((match.format or '—').upper())}  ·  🕒 {fmt_when(match.scheduled_at)}",
+    ]
+    odds = pred.fair_odds or {}
+    if odds.get("market_team_a") and odds.get("market_team_b"):
+        head.append(
+            f"💱 Кэфы: {team_name(team_a.name)} <b>{odds['market_team_a']}</b>"
+            f"  ·  {team_name(team_b.name)} <b>{odds['market_team_b']}</b>"
+        )
+    head += [
         f"{_risk_emoji(pred.risk_level)} Confidence <b>{float(pred.confidence):.2f}</b>"
         f"  ·  Risk <b>{esc(pred.risk_level)}</b>",
     ]
@@ -167,8 +175,8 @@ def format_balance(b: dict) -> str:
         f"Баланс: <b>{b['balance']:.2f}</b>  <i>(старт {b['start']:.0f})</i>\n"
         f"{sign} PnL: <b>{b['pnl']:+.2f}</b>  ·  ROI: <b>{b['roi']:+.1f}%</b>\n"
         f"Ставок: <b>{b['bets']}</b> (✅ {b['won']} / ❌ {b['lost']})  ·  ставка {b['stake']:.0f}\n\n"
-        "<i>Ставка на фаворита по fair-odds модели — у bo3 нет рыночных кэфов, "
-        "это тест калибровки.</i>"
+        "<i>Value-беттинг против mock-букмекера (рынок ≈ Elo+маржа): ставим только "
+        "когда модель видит edge. Без кэфов — fair-odds (тест калибровки).</i>"
     )
 
 
