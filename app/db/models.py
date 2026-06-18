@@ -397,6 +397,15 @@ class Postmortem(Base, TimestampMixin):
 # ── Scheduler bookkeeping ────────────────────────────────────────────
 
 
+class RuntimeConfig(Base, UpdatedMixin):
+    """Cross-process runtime overrides (e.g. model chosen via the /model bot
+    command). Read by the LLM client; falls back to .env when unset."""
+
+    __tablename__ = "runtime_config"
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class SchedulerLock(Base):
     __tablename__ = "scheduler_locks"
     job_name: Mapped[str] = mapped_column(Text, primary_key=True)

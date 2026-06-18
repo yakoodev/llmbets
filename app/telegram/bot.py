@@ -20,6 +20,8 @@ from sqlalchemy import func, select
 from app.config import settings
 from app.db.models import Match, NewsEvent, NewsItem, Prediction, Team
 from app.db.session import SessionLocal
+from app.llm.client import llm
+from app.runtime_config import get_config, set_config
 from app.telegram.formatters import esc, prediction_line
 
 logging.basicConfig(level=settings.log_level)
@@ -72,6 +74,7 @@ async def cmd_help(message: Message) -> None:
         "/upcoming — ближайшие матчи (48ч)\n"
         "/predictions — последние прогнозы\n"
         "/status — состояние системы\n"
+        "/model — показать/сменить модель LLM\n"
         "/start — chat_id\n\n"
         "<i>Прогнозы и сверка результатов приходят автоматически.</i>",
     )
@@ -110,6 +113,52 @@ async def cmd_status(message: Message) -> None:
         f"🎯 Прогнозов: <b>{preds}</b> (сверено {settled}, точность {acc})\n"
         f"🗞 Новостей: <b>{news}</b> · значимых событий: <b>{events}</b>\n"
         f"⚙️ Модель: <code>{esc(settings.explain_model_tier)}</code> · горизонт {settings.prediction_horizon_hours}ч",
+    )
+
+
+@dp.message(Command("model"))
+async def cmd_model(message: Message) -> None:
+    if not _authorized(message):
+        return
+    parts = (message.text or "").split()
+    cur_chat = await get_config("chat_model", settings.polza_chat_model)
+    cur_fast = await get_config("fast_model", settings.polza_fast_model)
+
+    if len(parts) == 1:
+        await _reply(
+            message,
+            "🧠 <b>Модели LLM</b>\n"
+            f"chat (основная): <code>{esc(cur_chat)}</code>\n"
+            f"fast (прогнозы/новости): <code>{esc(cur_fast)}</code>\n\n"
+            "Сменить основную: <code>/model openai/gpt-5.5</code>\n"
+            "Сменить fast: <code>/model fast openai/gpt-4.1-mini</code>\n\n"
+            f"<i>Объяснения прогнозов сейчас идут на tier «{esc(settings.explain_model_tier)}» "
+            f"(= {esc(cur_fast if settings.explain_model_tier == 'fast' else cur_chat)}).</i>",
+        )
+        return
+
+    if parts[1].lower() == "fast" and len(parts) >= 3:
+        key, new_model, label = "fast_model", parts[2].strip(), "fast"
+    else:
+        key, new_model, label = "chat_model", parts[1].strip(), "основная (chat)"
+
+    try:
+        models = await llm.list_models()
+    except Exception:  # noqa: BLE001
+        models = []
+    if models and new_model not in models:
+        await _reply(
+            message,
+            f"❌ Модель <code>{esc(new_model)}</code> не найдена у провайдера.\n"
+            "Пример корректного id: <code>openai/gpt-5.5</code>",
+        )
+        return
+
+    await set_config(key, new_model)
+    await _reply(
+        message,
+        f"✅ Модель <b>{label}</b>: <code>{esc(new_model)}</code>\n"
+        "Применится ко всем новым вызовам (бот + планировщик).",
     )
 
 
@@ -230,6 +279,7 @@ async def _set_commands(bot: Bot) -> None:
             BotCommand(command="upcoming", description="Ближайшие матчи (48ч)"),
             BotCommand(command="predictions", description="Последние прогнозы"),
             BotCommand(command="status", description="Состояние системы"),
+            BotCommand(command="model", description="Сменить модель LLM"),
             BotCommand(command="help", description="Список команд"),
         ]
     )

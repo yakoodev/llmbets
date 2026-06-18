@@ -33,14 +33,19 @@ class LLMClient:
             http_client=_build_http_client(),
         )
 
-    def _model(self, tier: Tier) -> str:
-        return settings.polza_chat_model if tier == "chat" else settings.polza_fast_model
+    async def _model(self, tier: Tier) -> str:
+        """Effective model: runtime override (set via /model) → else .env."""
+        from app.runtime_config import get_config
+
+        if tier == "chat":
+            return await get_config("chat_model", settings.polza_chat_model)
+        return await get_config("fast_model", settings.polza_fast_model)
 
     async def chat_text(
         self, system: str, user: str, tier: Tier = "fast", temperature: float = 0.2
     ) -> str:
         resp = await self._client.chat.completions.create(
-            model=self._model(tier),
+            model=await self._model(tier),
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
@@ -56,7 +61,7 @@ class LLMClient:
         falls back to parsing the text body otherwise."""
         try:
             resp = await self._client.chat.completions.create(
-                model=self._model(tier),
+                model=await self._model(tier),
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
