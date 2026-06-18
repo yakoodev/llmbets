@@ -1,5 +1,20 @@
 # Deploy to VPS
 
+## ✅ LIVE (since 2026-06-19) — production runs on the VPS, not the local PC
+- Host: **95.85.253.249** (Poland, Ubuntu 24.04, 1 vCore / 2 GB / 20 GB), repo at `/root/llmbets`.
+- Stack: `docker-compose.prod.yml` (postgres + api + bot + scheduler). **No proxy** —
+  Poland reaches Telegram / bo3 / news / Polza directly (verified).
+- The **local PC stack is stopped** (`docker compose down`); do NOT run the bot
+  locally at the same time (two pollers → Telegram getUpdates conflict).
+- **All further changes are deployed to the VPS:** edit locally → `git push` →
+  on the VPS `cd /root/llmbets && git pull && docker compose -f docker-compose.prod.yml up -d`
+  (add `build` first if requirements.txt changed).
+- SSH is key-based (no password). Health: `/status` in the bot, or
+  `curl localhost:8000/health` on the host.
+
+---
+
+
 Target: 2 vCPU / 2 GB / 20 GB, EU region (so Telegram/bo3/news work WITHOUT a
 proxy). Ubuntu 22.04+.
 

@@ -8,9 +8,13 @@ from app.db.session import SessionLocal
 
 
 async def get_config(key: str, default: str | None = None) -> str | None:
-    async with SessionLocal() as session:
-        row = await session.get(RuntimeConfig, key)
-        return row.value if row else default
+    # Never let a missing table / DB hiccup crash an LLM call — fall back to .env.
+    try:
+        async with SessionLocal() as session:
+            row = await session.get(RuntimeConfig, key)
+            return row.value if row else default
+    except Exception:  # noqa: BLE001
+        return default
 
 
 async def set_config(key: str, value: str) -> None:
