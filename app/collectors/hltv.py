@@ -27,7 +27,11 @@ async def fetch_results() -> list[dict]:
 
     hltv = Hltv(timeout=30)
     try:
-        return (await hltv.get_results()) or []
+        # days=3 matches our apply window; min_rating=1 + regular keeps tier-2/3
+        # (not just featured tier-1); max high enough to cover a busy day.
+        return (await hltv.get_results(
+            days=3, min_rating=1, max=100, featured=True, regular=True,
+        )) or []
     finally:
         for attr in ("close_session", "close"):
             fn = getattr(hltv, attr, None)
