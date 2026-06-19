@@ -221,7 +221,11 @@ async def _upsert_match(session, client, m: dict, tcache: dict, tourcache: dict)
         match = Match(**fields)
         session.add(match)
     else:
+        locked = bool(getattr(match, "result_locked", False))
         for k, v in fields.items():
+            # a hand-corrected result is authoritative — never let bo3 clobber it
+            if locked and k in ("winner_team_id", "status"):
+                continue
             setattr(match, k, v)
     await session.flush()
     return match
@@ -312,6 +316,7 @@ async def collect_results() -> int:
                     Match.source == "bo3",
                     Match.external_id.isnot(None),
                     Match.winner_team_id.isnot(None),
+                    Match.result_locked.is_(False),  # never revert a manual fix
                     Match.scheduled_at > now - timedelta(hours=24),
                 )
             )

@@ -152,6 +152,9 @@ class Match(Base, TimestampMixin, UpdatedMixin):
     # roster integrity (bo3 new_participant): team is playing with a stand-in
     team_a_standin: Mapped[bool | None] = mapped_column(Boolean)
     team_b_standin: Mapped[bool | None] = mapped_column(Boolean)
+    # manual result override — collectors must NOT clobber winner/status when set
+    # (used when the source served a wrong result we corrected by hand)
+    result_locked: Mapped[bool] = mapped_column(Boolean, default=False)
 
     team_a: Mapped["Team"] = relationship(foreign_keys=[team_a_id])
     team_b: Mapped["Team"] = relationship(foreign_keys=[team_b_id])
