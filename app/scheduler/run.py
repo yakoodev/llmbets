@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.collectors.bo3 import collect_results, collect_upcoming
+from app.collectors.hltv import apply_results as apply_hltv_results
 from app.collectors.pandascore import collect_rosters
 from app.collectors.player_news import collect_player_news
 from app.config import settings
@@ -70,6 +71,12 @@ def _job(coro_fn, name: str):
     return runner
 
 
+async def _collect_results():
+    # bo3 for coverage/schedule, then HLTV (authoritative) to set/correct winners
+    await collect_results()
+    await apply_hltv_results()
+
+
 async def _settle_and_postmortem():
     await settle_predictions(notify=True)
     # recompute the whole ledger so balance self-heals if a result was corrected
@@ -99,7 +106,7 @@ def build_scheduler() -> AsyncIOScheduler:
     # (fn, name, interval-kwargs, startup-offset seconds)
     jobs = [
         (drain_outbox, "outbox", {"minutes": 3}, 5),
-        (collect_results, "results", {"minutes": settings.result_collect_interval_minutes}, 10),
+        (_collect_results, "results", {"minutes": settings.result_collect_interval_minutes}, 10),
         (refresh_odds_for_upcoming, "odds", {"minutes": 30}, 70),
         (lambda: predict_upcoming(notify=True), "predictions", {"minutes": settings.prediction_interval_minutes}, 20),
         (_settle_and_postmortem, "settle_postmortem", {"minutes": 15}, 30),
