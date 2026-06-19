@@ -62,8 +62,11 @@ def prediction_line(
     team_a, team_b, pa, pb, when, risk, settled=None, odds_a=None, odds_b=None
 ) -> str:
     fav_a = pa >= pb
-    a = _line_side(team_a, pa * 100, odds_a, fav_a)
-    b = _line_side(team_b, pb * 100, odds_b, not fav_a)
+    # pending → highlight our predicted favourite; settled → highlight the actual
+    # WINNER (was_correct True ⇒ favourite won, False ⇒ the other side won).
+    hi_a = fav_a if settled is None else (fav_a == settled)
+    a = _line_side(team_a, pa * 100, odds_a, hi_a)
+    b = _line_side(team_b, pb * 100, odds_b, not hi_a)
     mark = ""
     if settled is True:
         mark = "  ✅"
