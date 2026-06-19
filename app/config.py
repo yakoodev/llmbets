@@ -84,7 +84,7 @@ class Settings(BaseSettings):
     # Odds provider: "mock" (test polygon — prices off Elo + vig) or a real one
     # later. odds_margin = bookmaker overround/vig. min_edge = value threshold:
     # only paper-bet when model prob exceeds market implied prob by this much.
-    odds_provider: str = "mock"  # "mock" or "oddspapi"
+    odds_provider: str = "onexbet"  # "onexbet" (real BK, free), "oddspapi", "mock"
     odds_margin: float = 0.06
     min_edge: float = 0.03
     # OddsPapi (real market odds). CS2 sportId=17, moneyline market=171.

@@ -166,9 +166,36 @@ def _store(session, match: Match, odds_a: float, odds_b: float, bookmaker: str) 
     return quote
 
 
+# ── 1xBet (real bookmaker, free, via curl_cffi Cloudflare bypass) ────
+
+
+async def _capture_onexbet(session, match: Match) -> dict | None:
+    from curl_cffi.requests import AsyncSession
+
+    from app.collectors.onexbet import cs2_games, find_game, _names_match, winner_odds
+
+    team_a = await session.get(Team, match.team_a_id)
+    team_b = await session.get(Team, match.team_b_id)
+    async with AsyncSession() as s:
+        game = find_game(await cs2_games(s), team_a.name, team_b.name)
+        if not game:
+            return None
+        odds = await winner_odds(s, game["id"])
+    if not odds:
+        return None
+    o1, o2 = odds  # 1xbet team1 / team2
+    if _names_match(game["o1"], team_a.name):
+        oa, ob = o1, o2
+    else:
+        oa, ob = o2, o1
+    return _store(session, match, oa, ob, "1xbet")
+
+
 async def capture_odds(session, match: Match) -> dict | None:
     if not (match.team_a_id and match.team_b_id):
         return None
+    if settings.odds_provider in ("onexbet", "1xbet"):
+        return await _capture_onexbet(session, match)
     if settings.odds_provider == "oddspapi":
         return await _capture_oddspapi(session, match)
     return await _capture_mock(session, match)
