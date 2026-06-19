@@ -22,6 +22,7 @@ from app.db.session import SessionLocal
 from app.postmortem.analyzer import run_postmortems, settle_predictions
 from app.postmortem.daily_review import run_daily_review
 from app.prediction.elo import rebuild_ratings
+from app.odds import refresh_odds_for_upcoming
 from app.prediction.engine import predict_upcoming, repredict_on_critical_news
 from app.processing.pipeline import run_news_pipeline
 from app.telegram.outbox import drain as drain_outbox
@@ -92,6 +93,7 @@ def build_scheduler() -> AsyncIOScheduler:
     jobs = [
         (drain_outbox, "outbox", {"minutes": 3}, 5),
         (collect_results, "results", {"minutes": settings.result_collect_interval_minutes}, 10),
+        (refresh_odds_for_upcoming, "odds", {"minutes": 30}, 70),
         (lambda: predict_upcoming(notify=True), "predictions", {"minutes": settings.prediction_interval_minutes}, 20),
         (_settle_and_postmortem, "settle_postmortem", {"minutes": 15}, 30),
         (collect_upcoming, "match_schedule", {"minutes": settings.match_schedule_interval_minutes}, 40),

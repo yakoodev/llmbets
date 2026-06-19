@@ -84,9 +84,13 @@ class Settings(BaseSettings):
     # Odds provider: "mock" (test polygon — prices off Elo + vig) or a real one
     # later. odds_margin = bookmaker overround/vig. min_edge = value threshold:
     # only paper-bet when model prob exceeds market implied prob by this much.
-    odds_provider: str = "mock"
+    odds_provider: str = "mock"  # "mock" or "oddspapi"
     odds_margin: float = 0.06
     min_edge: float = 0.03
+    # OddsPapi (real market odds). CS2 sportId=17, moneyline market=171.
+    oddspapi_api_key: str = ""
+    oddspapi_base_url: str = "https://api.oddspapi.io/v4"
+    odds_bookmaker: str = "pinnacle"  # preferred book (sharpest line)
 
     # Scheduling (minutes)
     news_collect_interval_minutes: int = 30
