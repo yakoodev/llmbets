@@ -179,12 +179,19 @@ async def _upsert_match(session, client, m: dict, tcache: dict, tourcache: dict)
     if not team_a or not team_b:
         return None
 
+    bo = m.get("bo_type")
     winner = None
     if m.get("winner_team_id"):
         w = str(m["winner_team_id"])
         winner = team_a if team_a.bo3_id == w else (team_b if team_b.bo3_id == w else None)
+    elif bo:  # bo3's winner/status can lag — infer from a decisive map score
+        need = int(bo) // 2 + 1  # bo3 -> first to 2, bo5 -> 3, bo1 -> 1
+        s1, s2 = m.get("team1_score") or 0, m.get("team2_score") or 0
+        if s1 >= need:
+            winner = team_a
+        elif s2 >= need:
+            winner = team_b
 
-    bo = m.get("bo_type")
     match = await session.scalar(
         select(Match).where(Match.external_id == ext, Match.source == "bo3")
     )
@@ -198,7 +205,8 @@ async def _upsert_match(session, client, m: dict, tcache: dict, tourcache: dict)
         ),
         format=f"bo{bo}" if bo else None,
         scheduled_at=_parse_dt(m.get("start_date")),
-        status=_status(m.get("status")),
+        # a decided winner means finished, even if bo3's status field still lags
+        status="finished" if winner else _status(m.get("status")),
         winner_team_id=winner.id if winner else None,
         team_a_standin=bool(m.get("team1_new_participant")),
         team_b_standin=bool(m.get("team2_new_participant")),
