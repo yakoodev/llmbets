@@ -11,6 +11,7 @@ from app.db.models import (
     Match,
     MatchRelevanceLink,
     NewsEvent,
+    OddsSnapshot,
     TeamNewsLink,
 )
 
@@ -36,6 +37,44 @@ async def recent_form(session, team_id, n: int = 10) -> tuple[float, int]:
         return 0.5, 0
     wins = sum(1 for m in matches if m.winner_team_id == team_id)
     return wins / len(matches), len(matches)
+
+
+async def head_to_head(session, a_id, b_id, n: int = 10) -> tuple[float, int]:
+    """team_a's win rate in the last n decided meetings between the two teams."""
+    matches = list(
+        await session.scalars(
+            select(Match)
+            .where(
+                Match.winner_team_id.isnot(None),
+                ((Match.team_a_id == a_id) & (Match.team_b_id == b_id))
+                | ((Match.team_a_id == b_id) & (Match.team_b_id == a_id)),
+            )
+            .order_by(Match.scheduled_at.desc().nullslast())
+            .limit(n)
+        )
+    )
+    if not matches:
+        return 0.5, 0
+    wins_a = sum(1 for m in matches if m.winner_team_id == a_id)
+    return wins_a / len(matches), len(matches)
+
+
+async def odds_drift(session, match_id, team_a_id) -> float:
+    """How much the market's implied prob for team_a moved (latest − earliest).
+    +ve = sharp money drifted toward team_a. 0 if <2 snapshots."""
+    rows = list(
+        await session.scalars(
+            select(OddsSnapshot)
+            .where(
+                OddsSnapshot.match_id == match_id,
+                OddsSnapshot.selection_team_id == team_a_id,
+            )
+            .order_by(OddsSnapshot.captured_at.asc())
+        )
+    )
+    if len(rows) < 2:
+        return 0.0
+    return float(rows[-1].implied_probability or 0) - float(rows[0].implied_probability or 0)
 
 
 async def news_signal(session, match: Match) -> tuple[float, float, list[dict]]:

@@ -35,7 +35,7 @@ from app.llm.client import llm
 from app.llm.prompts import load_prompt, render
 from app.odds import capture_odds
 from app.prediction.elo import BASE_ELO, expected_score
-from app.prediction.features import news_signal, recent_form
+from app.prediction.features import head_to_head, news_signal, odds_drift, recent_form
 
 log = logging.getLogger("prediction.engine")
 MODEL_VERSION = "elo-form-news-v0.2"
@@ -43,6 +43,8 @@ MODEL_VERSION = "elo-form-news-v0.2"
 # Blend weights (logit space): Elo is the anchor, form/news only nudge.
 W_FORM = 0.8
 W_NEWS = 0.6
+W_H2H = 0.5
+W_DRIFT = 0.4
 
 
 def _logit(p: float) -> float:
@@ -106,10 +108,22 @@ async def predict_match(session, match: Match) -> Prediction | None:
     form_a, fn_a = await recent_form(session, match.team_a_id)
     form_b, fn_b = await recent_form(session, match.team_b_id)
     sig_a, sig_b, news_details = await news_signal(session, match)
+    h2h_a, h2h_n = await head_to_head(session, match.team_a_id, match.team_b_id)
+    drift_a = await odds_drift(session, match.id, match.team_a_id)
 
+    # signals weighted by sample size — thin data must move the number less
+    form_w = min(min(fn_a, fn_b), 10) / 10.0
+    h2h_w = min(h2h_n, 6) / 6.0
     logit_final = (
-        _logit(p_elo) + W_FORM * (form_a - form_b) + W_NEWS * (sig_a - sig_b)
+        _logit(p_elo)
+        + W_FORM * (form_a - form_b) * form_w
+        + W_NEWS * (sig_a - sig_b)
+        + W_H2H * (h2h_a - 0.5) * h2h_w
+        + W_DRIFT * drift_a
     )
+    # uncertainty shrinkage: pull toward 50/50 when Elo history is thin
+    shrink = 0.5 + 0.5 * (min(min(mp_a, mp_b), 15) / 15.0)
+    logit_final *= shrink
     pa = _sigmoid(logit_final)
     pb = 1.0 - pa
     conf, risk = _confidence(mp_a, mp_b, pa)
@@ -136,6 +150,10 @@ async def predict_match(session, match: Match) -> Prediction | None:
         "news_signal_a": round(sig_a, 3),
         "news_signal_b": round(sig_b, 3),
         "news_details": news_details,
+        "h2h_winrate_a": round(h2h_a, 3),
+        "h2h_matches": h2h_n,
+        "odds_drift_a": round(drift_a, 4),
+        "shrink": round(shrink, 3),
         "prob_a": round(pa, 4),
         "prob_b": round(pb, 4),
     }
@@ -229,6 +247,9 @@ async def _explain(match, team_a, team_b, features, conf, risk, news, lessons) -
             "team_a": features["recent_form_a"],
             "team_b": features["recent_form_b"],
         },
+        "head_to_head_winrate_team_a": features["h2h_winrate_a"],
+        "h2h_matches": features["h2h_matches"],
+        "market_odds_drift_team_a": features["odds_drift_a"],
         "news_signal": {
             "team_a": features["news_signal_a"],
             "team_b": features["news_signal_b"],
