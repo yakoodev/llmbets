@@ -64,10 +64,10 @@ class Settings(BaseSettings):
     # Which model tier explains predictions: "fast" (cheap) or "chat" (strong).
     # The probability is computed by Elo+form+news (no LLM), so a cheap model
     # here only makes the prose simpler, not the prediction worse.
-    explain_model_tier: str = "fast"
+    explain_model_tier: str = "chat"
     # Post-mortem tier — defaults cheap too (high volume once tier-d matches
     # settle). Bump to "chat" for deeper error analysis at higher token cost.
-    postmortem_model_tier: str = "fast"
+    postmortem_model_tier: str = "chat"
     # Only predict matches starting within this many hours (don't burn tokens
     # forecasting the whole week ahead; matches get predicted as they approach).
     prediction_horizon_hours: int = 48
