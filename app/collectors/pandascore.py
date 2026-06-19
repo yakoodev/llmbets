@@ -217,7 +217,11 @@ async def collect_rosters() -> int:
     async with PandaScoreClient() as ps, SessionLocal() as session:
         teams = list(await session.scalars(select(Team).where(Team.pandascore_id.isnot(None))))
         for team in teams:
-            data = await ps.get(f"/teams/{team.pandascore_id}")
+            try:
+                data = await ps.get(f"/teams/{team.pandascore_id}")
+            except Exception as e:  # noqa: BLE001 — one bad/stale id must not kill the job
+                log.warning("roster fetch failed for %s: %s", team.pandascore_id, e)
+                continue
             ps_team = data[0] if isinstance(data, list) else data
             for ps_player in (ps_team or {}).get("players", []) or []:
                 player = await _get_or_create_player(session, ps_player)

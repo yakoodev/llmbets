@@ -75,7 +75,10 @@ async def _settle_and_postmortem():
 
 
 async def _daily_refresh():
-    await collect_rosters()
+    try:
+        await collect_rosters()
+    except Exception as e:  # noqa: BLE001 — rosters are enrichment; Elo must still rebuild
+        log.warning("collect_rosters failed, continuing to Elo: %s", e)
     await rebuild_ratings()
 
 
