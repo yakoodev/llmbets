@@ -205,8 +205,14 @@ async def _upsert_match(session, client, m: dict, tcache: dict, tourcache: dict)
         ),
         format=f"bo{bo}" if bo else None,
         scheduled_at=_parse_dt(m.get("start_date")),
-        # a decided winner means finished, even if bo3's status field still lags
-        status="finished" if winner else _status(m.get("status")),
+        # finished ONLY with a winner. If bo3 says finished but gave no winner
+        # (its data lags), keep it non-terminal ("live") so collect_results keeps
+        # polling until the winner appears — never strand a result.
+        status=(
+            "finished" if winner
+            else ("live" if _status(m.get("status")) in ("finished", "canceled")
+                  else _status(m.get("status")))
+        ),
         winner_team_id=winner.id if winner else None,
         team_a_standin=bool(m.get("team1_new_participant")),
         team_b_standin=bool(m.get("team2_new_participant")),
@@ -274,9 +280,10 @@ async def collect_results() -> int:
                 select(Match).where(
                     Match.source == "bo3",
                     Match.external_id.isnot(None),
-                    # re-check ANY overdue match that isn't already terminal —
-                    # robust to bo3 statuses we haven't mapped (e.g. "current").
-                    Match.status.notin_(["finished", "canceled"]),
+                    # re-check any overdue match WITHOUT a winner yet — keeps
+                    # polling even if bo3 marked it finished but left winner null
+                    # (otherwise it'd be stuck terminal forever, never settled).
+                    Match.winner_team_id.is_(None),
                     Match.scheduled_at < now,
                 )
             )
