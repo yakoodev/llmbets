@@ -38,7 +38,7 @@ from app.prediction.elo import BASE_ELO, expected_score
 from app.prediction.features import head_to_head, news_signal, odds_drift, recent_form
 
 log = logging.getLogger("prediction.engine")
-MODEL_VERSION = "elo-form-news-v0.2"
+MODEL_VERSION = "elo-form-news-market-v0.3"
 
 # Blend weights (logit space): Elo is the anchor, form/news only nudge.
 W_FORM = 0.8
@@ -46,6 +46,10 @@ W_NEWS = 0.6
 W_H2H = 0.5
 W_DRIFT = 0.4
 W_STANDIN = 0.5  # penalty for a team playing with a stand-in
+# A sharp bookmaker's de-vigged probability is the single strongest signal.
+# Blend it in heavily so our model stops contradicting the market and losing —
+# it may still deviate (value), but anchored to the market, not free-floating.
+W_MARKET = 0.6
 
 
 def _logit(p: float) -> float:
@@ -117,7 +121,7 @@ async def predict_match(session, match: Match) -> Prediction | None:
     h2h_w = min(h2h_n, 6) / 6.0
     standin_a = 1.0 if match.team_a_standin else 0.0
     standin_b = 1.0 if match.team_b_standin else 0.0
-    logit_final = (
+    logit_model = (
         _logit(p_elo)
         + W_FORM * (form_a - form_b) * form_w
         + W_NEWS * (sig_a - sig_b)
@@ -130,7 +134,17 @@ async def predict_match(session, match: Match) -> Prediction | None:
     shrink = 0.5 + 0.5 * (min(min(mp_a, mp_b), 15) / 15.0)
     if (match.format or "") == "bo1":
         shrink *= 0.85
-    logit_final *= shrink
+    logit_model *= shrink
+
+    # Market prior: capture real bookmaker odds now and blend the de-vigged
+    # market probability in heavily (W_MARKET). The sharp market is usually right;
+    # this stops the model favouring teams the market has as underdogs and losing.
+    odds = await capture_odds(session, match)
+    market_p_a = (odds or {}).get(match.team_a_id, {}).get("implied")
+    if market_p_a:
+        logit_final = W_MARKET * _logit(float(market_p_a)) + (1.0 - W_MARKET) * logit_model
+    else:
+        logit_final = logit_model
     pa = _sigmoid(logit_final)
     pb = 1.0 - pa
     conf, risk = _confidence(mp_a, mp_b, pa)
@@ -163,6 +177,7 @@ async def predict_match(session, match: Match) -> Prediction | None:
         "standin_a": bool(match.team_a_standin),
         "standin_b": bool(match.team_b_standin),
         "shrink": round(shrink, 3),
+        "market_prob_a": round(float(market_p_a), 4) if market_p_a else None,
         "prob_a": round(pa, 4),
         "prob_b": round(pb, 4),
     }
@@ -193,8 +208,7 @@ async def predict_match(session, match: Match) -> Prediction | None:
     )
     session.add(pred)
     await session.flush()
-    odds = await capture_odds(session, match)
-    if odds:
+    if odds:  # already captured above for the market prior — reuse it
         pred.fair_odds = {
             "market_team_a": odds.get(match.team_a_id, {}).get("odds"),
             "market_team_b": odds.get(match.team_b_id, {}).get("odds"),
