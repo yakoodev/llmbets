@@ -35,6 +35,12 @@ async def main() -> None:
         )
         await conn.execute(text("ALTER TABLE teams ADD COLUMN IF NOT EXISTS rank INT"))
         await conn.execute(
+            text("ALTER TABLE matches ADD COLUMN IF NOT EXISTS team_a_standin BOOLEAN")
+        )
+        await conn.execute(
+            text("ALTER TABLE matches ADD COLUMN IF NOT EXISTS team_b_standin BOOLEAN")
+        )
+        await conn.execute(
             text("CREATE INDEX IF NOT EXISTS teams_bo3_id_idx ON teams (bo3_id)")
         )
     print("Schema ready: extension + tables + hnsw index.")

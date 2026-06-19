@@ -149,6 +149,9 @@ class Match(Base, TimestampMixin, UpdatedMixin):
     )
     status: Mapped[str | None] = mapped_column(Text, index=True)  # upcoming/live/finished
     winner_team_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("teams.id"))
+    # roster integrity (bo3 new_participant): team is playing with a stand-in
+    team_a_standin: Mapped[bool | None] = mapped_column(Boolean)
+    team_b_standin: Mapped[bool | None] = mapped_column(Boolean)
 
     team_a: Mapped["Team"] = relationship(foreign_keys=[team_a_id])
     team_b: Mapped["Team"] = relationship(foreign_keys=[team_b_id])

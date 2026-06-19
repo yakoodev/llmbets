@@ -45,6 +45,7 @@ W_FORM = 0.8
 W_NEWS = 0.6
 W_H2H = 0.5
 W_DRIFT = 0.4
+W_STANDIN = 0.5  # penalty for a team playing with a stand-in
 
 
 def _logit(p: float) -> float:
@@ -114,15 +115,21 @@ async def predict_match(session, match: Match) -> Prediction | None:
     # signals weighted by sample size — thin data must move the number less
     form_w = min(min(fn_a, fn_b), 10) / 10.0
     h2h_w = min(h2h_n, 6) / 6.0
+    standin_a = 1.0 if match.team_a_standin else 0.0
+    standin_b = 1.0 if match.team_b_standin else 0.0
     logit_final = (
         _logit(p_elo)
         + W_FORM * (form_a - form_b) * form_w
         + W_NEWS * (sig_a - sig_b)
         + W_H2H * (h2h_a - 0.5) * h2h_w
         + W_DRIFT * drift_a
+        - W_STANDIN * (standin_a - standin_b)  # stand-in weakens that team
     )
-    # uncertainty shrinkage: pull toward 50/50 when Elo history is thin
+    # uncertainty shrinkage: pull toward 50/50 when Elo history is thin,
+    # and extra for bo1 (single-map = much higher variance)
     shrink = 0.5 + 0.5 * (min(min(mp_a, mp_b), 15) / 15.0)
+    if (match.format or "") == "bo1":
+        shrink *= 0.85
     logit_final *= shrink
     pa = _sigmoid(logit_final)
     pb = 1.0 - pa
@@ -153,6 +160,8 @@ async def predict_match(session, match: Match) -> Prediction | None:
         "h2h_winrate_a": round(h2h_a, 3),
         "h2h_matches": h2h_n,
         "odds_drift_a": round(drift_a, 4),
+        "standin_a": bool(match.team_a_standin),
+        "standin_b": bool(match.team_b_standin),
         "shrink": round(shrink, 3),
         "prob_a": round(pa, 4),
         "prob_b": round(pb, 4),
@@ -250,6 +259,7 @@ async def _explain(match, team_a, team_b, features, conf, risk, news, lessons) -
         "head_to_head_winrate_team_a": features["h2h_winrate_a"],
         "h2h_matches": features["h2h_matches"],
         "market_odds_drift_team_a": features["odds_drift_a"],
+        "stand_in": {"team_a": features["standin_a"], "team_b": features["standin_b"]},
         "news_signal": {
             "team_a": features["news_signal_a"],
             "team_b": features["news_signal_b"],

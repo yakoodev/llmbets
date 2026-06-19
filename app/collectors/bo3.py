@@ -200,6 +200,8 @@ async def _upsert_match(session, client, m: dict, tcache: dict, tourcache: dict)
         scheduled_at=_parse_dt(m.get("start_date")),
         status=_status(m.get("status")),
         winner_team_id=winner.id if winner else None,
+        team_a_standin=bool(m.get("team1_new_participant")),
+        team_b_standin=bool(m.get("team2_new_participant")),
     )
     if match is None:
         match = Match(**fields)
