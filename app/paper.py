@@ -23,37 +23,38 @@ async def _current_balance(session) -> float:
 
 async def place_paper_bet(session, pred: Prediction) -> PaperBet | None:
     """Place the paper bet for a settled prediction (idempotent per prediction).
-    Stake = % of current balance. Relies on autoflush so prior bets in this
-    session are counted in the running balance."""
+
+    We bet on OUR predicted winner; the bookmaker odds only size the payout (use
+    the market odds for our pick if available, else the model's fair odds). So a
+    correct prediction = winning bet. Stake = % of current balance (compounds;
+    relies on autoflush so prior bets in this session count in the balance)."""
     if pred.was_correct is None:
         return None
     if await session.scalar(select(PaperBet.id).where(PaperBet.prediction_id == pred.id)):
         return None
 
     match = await session.get(Match, pred.match_id)
-    pa, pb = float(pred.team_a_probability), float(pred.team_b_probability)
+    selection = pred.predicted_winner_team_id  # bet on our predicted winner
     odds_map = await latest_odds(session, pred.match_id)
 
-    if match and match.team_a_id in odds_map and match.team_b_id in odds_map:
-        oa, ob = odds_map[match.team_a_id], odds_map[match.team_b_id]
-        edge_a, edge_b = pa - oa["implied"], pb - ob["implied"]
-        if edge_a >= edge_b:
-            selection, odds_used, edge = match.team_a_id, oa["odds"], edge_a
-        else:
-            selection, odds_used, edge = match.team_b_id, ob["odds"], edge_b
-        if edge < settings.min_edge:
-            return None  # no value vs the market → no bet
+    if selection and selection in odds_map:
+        odds_used = odds_map[selection]["odds"]  # market odds for our pick
     else:
-        fav_prob = min(max(max(pa, pb), 0.01), 0.99)
-        odds_used = round(1.0 / fav_prob, 3)
-        selection = pred.predicted_winner_team_id
+        sel_prob = 0.5
+        if match:
+            sel_prob = float(
+                pred.team_a_probability
+                if selection == match.team_a_id
+                else pred.team_b_probability
+            )
+        odds_used = round(1.0 / min(max(sel_prob, 0.01), 0.99), 3)
 
     balance = await _current_balance(session)
     stake = round(settings.paper_stake_pct * balance, 2)
     if stake <= 0:
         return None
 
-    won = (match.winner_team_id == selection) if match else False
+    won = bool(pred.was_correct)  # selection IS the predicted winner
     pnl = round(stake * (odds_used - 1.0), 2) if won else -stake
     bet = PaperBet(
         prediction_id=pred.id,
