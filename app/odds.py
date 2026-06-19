@@ -180,14 +180,16 @@ async def _capture_onexbet(session, match: Match) -> dict | None:
         game = find_game(await cs2_games(s), team_a.name, team_b.name)
         if not game:
             return None
-        odds = await winner_odds(s, game["id"])
-    if not odds:
+        res = await winner_odds(s, game["id"])
+    if not res:
         return None
-    o1, o2 = odds  # 1xbet team1 / team2
-    if _names_match(game["o1"], team_a.name):
+    o1, o2, n1, n2 = res  # odds + team names from the SAME GetGameZip response
+    if _names_match(n1, team_a.name):
         oa, ob = o1, o2
-    else:
+    elif _names_match(n2, team_a.name):
         oa, ob = o2, o1
+    else:
+        return None  # can't confidently map odds to our team_a — skip, don't guess
     return _store(session, match, oa, ob, "1xbet")
 
 

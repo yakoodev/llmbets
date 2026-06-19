@@ -22,7 +22,11 @@ K = 32.0
 # Tier-1 results carry more signal than minor/qualifier games; forfeits
 # (free-tier "canceled" walkovers) carry the least.
 _TIER_W = {"s": 1.5, "a": 1.25, "b": 1.0, "c": 0.8, "d": 0.6}
-_STATUS_W = {"finished": 1.0, "canceled": 0.4}
+# Only walkover/forfeit ("canceled") is down-weighted. Any other status on a
+# DECIDED match (finished, or a source's "live"/odd label that still carries a
+# winner) is a real result → full weight; don't silently shrink it.
+_STATUS_W = {"canceled": 0.4}
+_STATUS_W_DEFAULT = 1.0
 
 
 def expected_score(rating_a: float, rating_b: float) -> float:
@@ -31,7 +35,7 @@ def expected_score(rating_a: float, rating_b: float) -> float:
 
 def _match_k(match) -> float:
     tw = _TIER_W.get((match.tier or "").lower(), 0.6)
-    sw = _STATUS_W.get(match.status or "", 0.4)
+    sw = _STATUS_W.get(match.status or "", _STATUS_W_DEFAULT)
     return K * tw * sw
 
 
@@ -65,7 +69,9 @@ async def rebuild_ratings() -> int:
             ratings[b] = rb + k * ((1.0 - sa) - (1.0 - ea))
             for t in (a, b):
                 played[t] = played.get(t, 0) + 1
-                last_at[t] = m.scheduled_at
+                # don't let a null-scheduled row (sorted last) regress a real date
+                if m.scheduled_at and (t not in last_at or m.scheduled_at > last_at[t]):
+                    last_at[t] = m.scheduled_at
 
         await session.execute(delete(TeamRating))
         for team_id, elo in ratings.items():

@@ -117,20 +117,31 @@ def find_game(games: list[dict], team_a: str, team_b: str) -> dict | None:
     return None
 
 
-async def winner_odds(session: AsyncSession, game_id: int) -> tuple[float, float] | None:
-    """Match-winner decimal odds (o1, o2) from GetGameZip → GE group 1."""
+async def winner_odds(session: AsyncSession, game_id: int):
+    """Match-winner odds + team names FROM THE SAME GetGameZip response.
+
+    Returns (o1, o2, name1, name2) where o1/name1 is T==1/O1 and o2/name2 is
+    T==3/O2 — so the caller maps odds→team by name within one response instead
+    of trusting cross-endpoint (GetChampZip vs GetGameZip) ordering. None if the
+    match-winner market (GE group 1) isn't fully present."""
     val = (await _get(session, "GetGameZip", {
         "id": game_id, "lng": "en", "cfview": 0,
         "isSubGames": "true", "GroupEvents": "true", "countevents": 250,
     })).get("Value") or {}
+    n1, n2 = val.get("O1"), val.get("O2")
     o1 = o2 = None
     for grp in val.get("GE") or []:
         if grp.get("G") != 1:  # G==1 is the main match-winner market
             continue
-        for outcomes in grp.get("E") or []:
-            for ev in outcomes:
+        for sub in grp.get("E") or []:
+            # E is sometimes a list of lists, sometimes flat — normalise
+            for ev in (sub if isinstance(sub, list) else [sub]):
+                if not isinstance(ev, dict):
+                    continue
                 if ev.get("T") == 1 and ev.get("C"):
                     o1 = float(ev["C"])
                 elif ev.get("T") == 3 and ev.get("C"):
                     o2 = float(ev["C"])
-    return (o1, o2) if o1 and o2 else None
+    if o1 and o2 and n1 and n2:
+        return (o1, o2, n1, n2)
+    return None

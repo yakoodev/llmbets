@@ -33,13 +33,24 @@ async def drain(limit: int = 50) -> int:
                 .limit(limit)
             )
         )
+        MAX_ATTEMPTS = 8
         for row in rows:
             row.attempts += 1
-            if await _raw_send(row.text, target, row.parse_mode or "HTML"):
+            # truncate to Telegram's hard limit so an over-long message isn't a
+            # permanent failure that blocks the queue
+            if await _raw_send(row.text[:4096], target, row.parse_mode or "HTML"):
                 row.sent_at = datetime.now(timezone.utc)
                 sent += 1
+            elif row.attempts >= MAX_ATTEMPTS:
+                # poison message (e.g. malformed HTML Telegram rejects) — dead-letter
+                # it so it stops head-of-line-blocking everything behind it
+                row.sent_at = datetime.now(timezone.utc)
+                log.warning(
+                    "outbox: dead-lettering message %s after %d failed attempts",
+                    row.id, row.attempts,
+                )
             else:
-                break  # proxy still down — stop, retry next cycle
+                break  # likely transient (network) — stop, retry whole batch next cycle
         await session.commit()
     if sent:
         log.info("outbox: redelivered %d messages", sent)

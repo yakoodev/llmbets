@@ -141,7 +141,7 @@ async def predict_match(session, match: Match) -> Prediction | None:
     # this stops the model favouring teams the market has as underdogs and losing.
     odds = await capture_odds(session, match)
     market_p_a = (odds or {}).get(match.team_a_id, {}).get("implied")
-    if market_p_a:
+    if market_p_a is not None and 0.0 < float(market_p_a) < 1.0:
         logit_final = W_MARKET * _logit(float(market_p_a)) + (1.0 - W_MARKET) * logit_model
     else:
         logit_final = logit_model

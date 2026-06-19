@@ -77,48 +77,52 @@ async def apply_results() -> int:
         for m in recent:
             ta = await session.get(Team, m.team_a_id)
             tb = await session.get(Team, m.team_b_id)
+            # collect the winner from EVERY decisive HLTV row that names both
+            # teams. If more than one distinct winner matches (same teams twice
+            # in the window, or an academy/substring collision), it's ambiguous
+            # — skip rather than lock a guess. Exactly one → trust it.
+            candidates: set = set()
             for r in results:
                 try:
                     s1, s2 = int(r.get("score1")), int(r.get("score2"))
                 except (TypeError, ValueError):
                     continue
+                if s1 == s2:
+                    continue  # not decisive
                 t1, t2 = r.get("team1", ""), r.get("team2", "")
                 if _nm(t1, ta.name) and _nm(t2, tb.name):
-                    hi, lo = m.team_a_id, m.team_b_id
+                    candidates.add(m.team_a_id if s1 > s2 else m.team_b_id)
                 elif _nm(t1, tb.name) and _nm(t2, ta.name):
-                    hi, lo = m.team_b_id, m.team_a_id
-                else:
-                    continue
-                if s1 == s2:
-                    break  # not decisive / draw — skip
-                winner = hi if s1 > s2 else lo
-                if m.winner_team_id == winner and m.result_locked:
-                    break  # already correct + locked
-                changed = m.winner_team_id != winner
-                m.winner_team_id = winner
-                m.status = "finished"
-                m.result_locked = True  # HLTV is authoritative
-                if changed:
-                    for p in list(
-                        await session.scalars(
-                            select(Prediction).where(Prediction.match_id == m.id)
-                        )
-                    ):
-                        await session.execute(
-                            delete(PaperBet).where(PaperBet.prediction_id == p.id)
-                        )
-                        await session.execute(
-                            delete(Postmortem).where(Postmortem.prediction_id == p.id)
-                        )
-                        p.was_correct = None
-                        p.brier_score = None
-                        p.settled_at = None
-                    log.info(
-                        "HLTV corrected winner: %s vs %s -> %s",
-                        ta.name, tb.name, ta.name if winner == m.team_a_id else tb.name,
+                    candidates.add(m.team_b_id if s1 > s2 else m.team_a_id)
+            if len(candidates) != 1:
+                continue  # 0 = no HLTV result; >1 = ambiguous — don't lock
+            winner = next(iter(candidates))
+            if m.winner_team_id == winner and m.result_locked:
+                continue  # already correct + locked
+            changed = m.winner_team_id != winner
+            m.winner_team_id = winner
+            m.status = "finished"
+            m.result_locked = True  # HLTV is authoritative
+            if changed:
+                for p in list(
+                    await session.scalars(
+                        select(Prediction).where(Prediction.match_id == m.id)
                     )
-                applied += 1
-                break
+                ):
+                    await session.execute(
+                        delete(PaperBet).where(PaperBet.prediction_id == p.id)
+                    )
+                    await session.execute(
+                        delete(Postmortem).where(Postmortem.prediction_id == p.id)
+                    )
+                    p.was_correct = None
+                    p.brier_score = None
+                    p.settled_at = None
+                log.info(
+                    "HLTV corrected winner: %s vs %s -> %s",
+                    ta.name, tb.name, ta.name if winner == m.team_a_id else tb.name,
+                )
+            applied += 1
         await session.commit()
     log.info("hltv apply_results: %d matches set from HLTV", applied)
     return applied

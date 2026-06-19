@@ -30,11 +30,17 @@ async def place_paper_bet(session, pred: Prediction) -> PaperBet | None:
     relies on autoflush so prior bets in this session count in the balance)."""
     if pred.was_correct is None:
         return None
+    selection = pred.predicted_winner_team_id  # bet on our predicted winner
+    if selection is None:
+        return None  # no pick → no bet
     if await session.scalar(select(PaperBet.id).where(PaperBet.prediction_id == pred.id)):
+        return None
+    # one bet per MATCH: a match can carry >1 settled prediction (re-predict,
+    # corrections) — never double-stake the same real outcome.
+    if await session.scalar(select(PaperBet.id).where(PaperBet.match_id == pred.match_id)):
         return None
 
     match = await session.get(Match, pred.match_id)
-    selection = pred.predicted_winner_team_id  # bet on our predicted winner
     odds_map = await latest_odds(session, pred.match_id)
 
     if selection and selection in odds_map:
@@ -67,6 +73,7 @@ async def place_paper_bet(session, pred: Prediction) -> PaperBet | None:
         settled_at=pred.settled_at,
     )
     session.add(bet)
+    await session.flush()  # next bet's running balance must include this one
     return bet
 
 

@@ -154,7 +154,9 @@ class Match(Base, TimestampMixin, UpdatedMixin):
     team_b_standin: Mapped[bool | None] = mapped_column(Boolean)
     # manual result override — collectors must NOT clobber winner/status when set
     # (used when the source served a wrong result we corrected by hand)
-    result_locked: Mapped[bool] = mapped_column(Boolean, default=False)
+    result_locked: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
 
     team_a: Mapped["Team"] = relationship(foreign_keys=[team_a_id])
     team_b: Mapped["Team"] = relationship(foreign_keys=[team_b_id])

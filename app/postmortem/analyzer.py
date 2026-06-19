@@ -56,6 +56,8 @@ async def settle_predictions(notify: bool = True) -> int:
                 f"📊 Начинаю сверку результатов: {len(rows)} матч(ей)…"
             )
         for pred, match in rows:
+            if match.winner_team_id not in (match.team_a_id, match.team_b_id):
+                continue  # winner isn't one of the two teams — bad data, don't settle
             outcome_a = 1.0 if match.winner_team_id == match.team_a_id else 0.0
             pa = float(pred.team_a_probability)
             pred.brier_score = round((pa - outcome_a) ** 2, 4)

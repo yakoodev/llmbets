@@ -22,6 +22,8 @@ async def resolve_team(session, name: str) -> Team | None:
     if not name or not name.strip():
         return None
     norm = normalize(name)
+    if not norm:  # all-punctuation / non-Latin (Cyrillic) → "" would match any "" team
+        return None
     teams = list(await session.scalars(select(Team)))
     for t in teams:
         if normalize(t.name) == norm or (t.slug and normalize(t.slug) == norm):
@@ -44,6 +46,8 @@ async def resolve_player(session, nickname: str) -> Player | None:
     if not nickname or not nickname.strip():
         return None
     norm = normalize(nickname)
+    if not norm:
+        return None
     players = list(await session.scalars(select(Player)))
     for p in players:
         if normalize(p.nickname) == norm:

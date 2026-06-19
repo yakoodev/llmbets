@@ -222,9 +222,12 @@ async def _upsert_match(session, client, m: dict, tcache: dict, tourcache: dict)
         session.add(match)
     else:
         locked = bool(getattr(match, "result_locked", False))
+        # Protect a decided winner from being clobbered: a hand/HLTV-locked result
+        # is authoritative, and a transient empty bo3 payload (winner None) must
+        # not null a winner we already have.
+        keep = locked or (winner is None and match.winner_team_id is not None)
         for k, v in fields.items():
-            # a hand-corrected result is authoritative — never let bo3 clobber it
-            if locked and k in ("winner_team_id", "status"):
+            if keep and k in ("winner_team_id", "status"):
                 continue
             setattr(match, k, v)
     await session.flush()
