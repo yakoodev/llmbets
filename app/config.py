@@ -56,6 +56,9 @@ class Settings(BaseSettings):
 
     # News fetching often needs the proxy too (egress blocked in-region).
     news_proxy_url: str = ""
+    # Drop news older than this — feeds (esp. Google News search) return stale
+    # articles by relevance; old roster/form items must not drive predictions.
+    news_max_age_days: int = 14
 
     # ── LLM cost controls ────────────────────────────────────────────
     # Which model tier explains predictions: "fast" (cheap) or "chat" (strong).

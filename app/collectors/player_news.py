@@ -14,7 +14,7 @@ import asyncio
 import logging
 import sys
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
@@ -71,11 +71,15 @@ async def collect_player_news(max_players: int = 25, per_player: int = 8) -> int
             )
         )
         log.info("collect_player_news: %d players to scan", len(players))
+        cutoff = datetime.now(timezone.utc) - timedelta(days=settings.news_max_age_days)
         for player in players:
             parsed = await _fetch_feed(_gn_query(player.nickname))
             if parsed is None:
                 continue
             for e in parsed.entries[:per_player]:
+                published = _published(e)
+                if published and published < cutoff:
+                    continue  # stale — per-player queries surface old pages
                 link = e.get("link")
                 title = e.get("title")
                 summary = e.get("summary") or e.get("description") or ""
@@ -92,7 +96,7 @@ async def collect_player_news(max_players: int = 25, per_player: int = 8) -> int
                         title=title,
                         raw_text=summary,
                         clean_text=_strip_html(summary),
-                        published_at=_published(e),
+                        published_at=published,
                         content_hash=content_hash,
                     )
                 )

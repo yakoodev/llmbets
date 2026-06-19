@@ -15,7 +15,7 @@ import hashlib
 import logging
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import feedparser
 import httpx
@@ -117,6 +117,7 @@ async def seed_sources() -> None:
 async def collect_news(per_feed: int = 50) -> int:
     await seed_sources()
     saved = 0
+    cutoff = datetime.now(timezone.utc) - timedelta(days=settings.news_max_age_days)
     async with SessionLocal() as session:
         sources = list(
             await session.scalars(
@@ -132,6 +133,9 @@ async def collect_news(per_feed: int = 50) -> int:
             entries = parsed.entries[:per_feed]
             log.info("feed %s: %d entries", src.name, len(entries))
             for e in entries:
+                published = _published(e)
+                if published and published < cutoff:
+                    continue  # stale — feeds return old articles by relevance
                 link = e.get("link")
                 title = e.get("title")
                 summary = e.get("summary") or e.get("description") or ""
@@ -149,7 +153,7 @@ async def collect_news(per_feed: int = 50) -> int:
                         title=title,
                         raw_text=summary,
                         clean_text=clean,
-                        published_at=_published(e),
+                        published_at=published,
                         content_hash=content_hash,
                     )
                 )
