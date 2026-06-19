@@ -17,10 +17,10 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app.config import settings
-from app.db.models import Match, Team
+from app.db.models import Match, PaperBet, Postmortem, Prediction, Team
 from app.db.session import SessionLocal
 
 log = logging.getLogger("collector.bo3")
@@ -301,7 +301,60 @@ async def collect_results() -> int:
                 continue
             if await _upsert_match(session, client, m, tcache, tourcache):
                 updated += 1
+
+        # Re-verify recently-finished matches: bo3 occasionally posts a WRONG
+        # result and corrects it within hours. If its winner changed, undo the
+        # stale settle (bet + post-mortem) so the next settle pass redoes it
+        # against the corrected winner — never leave a wrong result settled.
+        recent = list(
+            await session.scalars(
+                select(Match).where(
+                    Match.source == "bo3",
+                    Match.external_id.isnot(None),
+                    Match.winner_team_id.isnot(None),
+                    Match.scheduled_at > now - timedelta(hours=24),
+                )
+            )
+        )
+        corrected = 0
+        for match in recent:
+            old_winner = match.winner_team_id
+            try:
+                data = await client.get(
+                    MATCHES, {"filter[matches.id][eq]": match.external_id}
+                )
+                m = (data.get("results") or [None])[0]
+            except Exception as e:  # noqa: BLE001
+                log.warning("bo3 re-verify fetch failed %s: %s", match.external_id, e)
+                continue
+            if not m:
+                continue
+            await _upsert_match(session, client, m, tcache, tourcache)
+            await session.flush()
+            if match.winner_team_id and match.winner_team_id != old_winner:
+                log.warning(
+                    "bo3 CORRECTED winner for match %s: %s -> %s; re-settling",
+                    match.external_id, old_winner, match.winner_team_id,
+                )
+                preds = list(
+                    await session.scalars(
+                        select(Prediction).where(Prediction.match_id == match.id)
+                    )
+                )
+                for p in preds:
+                    await session.execute(
+                        delete(PaperBet).where(PaperBet.prediction_id == p.id)
+                    )
+                    await session.execute(
+                        delete(Postmortem).where(Postmortem.prediction_id == p.id)
+                    )
+                    p.was_correct = None
+                    p.brier_score = None
+                    p.settled_at = None
+                corrected += 1
         await session.commit()
+    if corrected:
+        log.warning("bo3 collect_results: %d match(es) re-settled after correction", corrected)
     log.info("bo3 collect_results: resolved %d overdue matches", updated)
     return updated
 

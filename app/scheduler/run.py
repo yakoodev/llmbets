@@ -19,6 +19,7 @@ from app.collectors.player_news import collect_player_news
 from app.config import settings
 from app.db.models import SchedulerLock
 from app.db.session import SessionLocal
+from app.paper import rebuild_ledger
 from app.postmortem.analyzer import run_postmortems, settle_predictions
 from app.postmortem.daily_review import run_daily_review
 from app.prediction.elo import rebuild_ratings
@@ -71,6 +72,9 @@ def _job(coro_fn, name: str):
 
 async def _settle_and_postmortem():
     await settle_predictions(notify=True)
+    # recompute the whole ledger so balance self-heals if a result was corrected
+    # (% staking compounds — a flipped historical bet shifts every later balance)
+    await rebuild_ledger()
     await run_postmortems()
 
 
