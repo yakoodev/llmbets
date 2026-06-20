@@ -260,10 +260,14 @@ async def _explain(match, team_a, team_b, features, conf, risk, news, lessons) -
             "format": match.format,
             "tier": match.tier,
         },
-        "model_probabilities": {
+        "final_probabilities": {
             "team_a": features["prob_a"],
             "team_b": features["prob_b"],
         },
+        # the final prob is the model blended with the bookmaker line (market is
+        # the dominant driver) — so the explanation reflects WHY, not just Elo/form
+        "bookmaker_implied_prob_team_a": features.get("market_prob_a"),
+        "pre_market_model_prob_team_a": features.get("model_prob_a"),
         "elo": {"team_a": features["elo_a"], "team_b": features["elo_b"]},
         "matches_in_history": {
             "team_a": features["matches_played_a"],

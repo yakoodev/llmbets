@@ -96,7 +96,10 @@ async def run_postmortems(limit: int = 20, notify: bool = True) -> int:
         preds = list(
             await session.scalars(
                 select(Prediction)
-                .where(Prediction.was_correct.isnot(None))
+                # "работа над ошибками" only for LOST predictions — analysing a
+                # correct call for failure reasons is nonsensical (the daily
+                # review already covers what WORKED).
+                .where(Prediction.was_correct.is_(False))
                 .where(
                     Prediction.id.notin_(select(Postmortem.prediction_id))
                 )
