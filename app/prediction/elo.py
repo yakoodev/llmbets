@@ -6,18 +6,30 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import sys
 
 from sqlalchemy import delete, select
 
 from app.config import settings
-from app.db.models import Match, TeamRating
+from app.db.models import Match, Team, TeamRating
 from app.db.session import SessionLocal
 
 log = logging.getLogger("prediction.elo")
 
 BASE_ELO = 1500.0
 K = 32.0
+_MAX_RANK = 360.0  # bo3/HLTV world ranking spans ~1..360
+
+
+def _seed_from_rank(rank: int | None) -> float:
+    """Initial Elo from real world rank — the cross-tier prior the match data
+    can't supply (tier-1 and tier-3 pools barely play each other). rank 1 ≈ 1800,
+    rank 360 ≈ 1500, unranked ≈ 1450 (typically lower-tier). Match results then
+    adjust from this seed."""
+    if not rank or rank < 1:
+        return 1450.0
+    return round(1500.0 + 300.0 * (1.0 - math.log(rank) / math.log(_MAX_RANK)), 1)
 
 # Tier-1 results carry more signal than minor/qualifier games; forfeits
 # (free-tier "canceled" walkovers) carry the least.
@@ -55,7 +67,9 @@ async def rebuild_ratings() -> int:
                 .order_by(Match.scheduled_at.asc().nullslast())
             )
         )
-        ratings: dict = {}
+        # seed every team's initial Elo from its real world rank (cross-tier prior)
+        teams = list(await session.scalars(select(Team)))
+        ratings: dict = {t.id: _seed_from_rank(t.rank) for t in teams}
         played: dict = {}
         last_at: dict = {}
         for m in matches:

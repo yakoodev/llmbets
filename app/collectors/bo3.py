@@ -180,17 +180,23 @@ async def _upsert_match(session, client, m: dict, tcache: dict, tourcache: dict)
         return None
 
     bo = m.get("bo_type")
+    s1, s2 = m.get("team1_score") or 0, m.get("team2_score") or 0
     winner = None
-    if m.get("winner_team_id"):
-        w = str(m["winner_team_id"])
-        winner = team_a if team_a.bo3_id == w else (team_b if team_b.bo3_id == w else None)
-    elif bo:  # bo3's winner/status can lag — infer from a decisive map score
+    if bo:
+        # Settle ONLY on a decisive map score (first to bo//2+1). bo3 sometimes
+        # publishes winner_team_id mid-series (after a single map) — trusting it
+        # caused a premature result/scorecard, so we ignore it until the score
+        # actually clinches. Score not decisive yet → winner stays None and
+        # collect_results keeps polling.
         need = int(bo) // 2 + 1  # bo3 -> first to 2, bo5 -> 3, bo1 -> 1
-        s1, s2 = m.get("team1_score") or 0, m.get("team2_score") or 0
         if s1 >= need:
             winner = team_a
         elif s2 >= need:
             winner = team_b
+    elif m.get("winner_team_id"):
+        # no bo_type to validate a score against — fall back to bo3's explicit winner
+        w = str(m["winner_team_id"])
+        winner = team_a if team_a.bo3_id == w else (team_b if team_b.bo3_id == w else None)
 
     match = await session.scalar(
         select(Match).where(Match.external_id == ext, Match.source == "bo3")
