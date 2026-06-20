@@ -177,6 +177,9 @@ async def predict_match(session, match: Match) -> Prediction | None:
         "standin_a": bool(match.team_a_standin),
         "standin_b": bool(match.team_b_standin),
         "shrink": round(shrink, 3),
+        # pre-blend model prob, kept so refresh_odds can re-apply the market prior
+        # in place once 1xBet posts a line that wasn't available at predict time
+        "model_prob_a": round(_sigmoid(logit_model), 4),
         "market_prob_a": round(float(market_p_a), 4) if market_p_a else None,
         "prob_a": round(pa, 4),
         "prob_b": round(pb, 4),
