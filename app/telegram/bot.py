@@ -84,6 +84,7 @@ async def cmd_help(message: Message) -> None:
         message,
         "🤖 <b>Команды</b>\n\n"
         "📅 /today — прогнозы на сегодня (МСК)\n"
+        "📅 /yesterday — прогнозы за вчера\n"
         "📅 /tomorrow — прогнозы на завтра\n"
         "⏳ /upcoming — ближайшие 48 часов\n"
         "🎯 /predictions — последние прогнозы\n"
@@ -271,6 +272,19 @@ async def cmd_tomorrow(message: Message) -> None:
     )
 
 
+@dp.message(Command("yesterday"))
+async def cmd_yesterday(message: Message) -> None:
+    if not _authorized(message):
+        return
+    start, end = _msk_day_bounds(-1)
+    async with SessionLocal() as s:
+        items = await _items(s, list(await s.execute(_between(start, end))))
+    await _reply(
+        message,
+        format_prediction_list("📅 Прогнозы за вчера (МСК)", items, "За вчера прогнозов нет."),
+    )
+
+
 @dp.message(Command("upcoming"))
 async def cmd_upcoming(message: Message) -> None:
     if not _authorized(message):
@@ -428,6 +442,7 @@ async def _set_commands(bot: Bot) -> None:
     await bot.set_my_commands(
         [
             BotCommand(command="today", description="Прогнозы на сегодня (МСК)"),
+            BotCommand(command="yesterday", description="Прогнозы за вчера (МСК)"),
             BotCommand(command="tomorrow", description="Прогнозы на завтра (МСК)"),
             BotCommand(command="upcoming", description="Ближайшие 48ч"),
             BotCommand(command="predictions", description="Последние прогнозы"),
