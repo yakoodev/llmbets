@@ -51,22 +51,28 @@ def _side(name: str, pct: float, fav: bool) -> str:
     return f"{team_name(name)} {pct:.0f}%"
 
 
-def _line_side(name: str, pct: float, odds, fav: bool) -> str:
+def _line_side(name: str, pct: float, odds, pick: bool, won: bool = False) -> str:
     txt = f"{team_name(name)} {pct:.0f}%"
     if odds:
         txt += f" <i>({float(odds):.2f})</i>"
-    return f"<b><u>{txt}</u></b>" if fav else txt
+    if pick:  # OUR pick (the favourite) — always underlined, never moves
+        txt = f"<b><u>{txt}</u></b>"
+    if won:  # actual winner of a settled match
+        txt = f"🏆 {txt}"
+    return txt
 
 
 def prediction_line(
     team_a, team_b, pa, pb, when, risk, settled=None, odds_a=None, odds_b=None
 ) -> str:
+    # Underline = OUR pick (higher prob) — stable, the same in every render.
+    # 🏆 marks the actual winner once settled (was_correct True ⇒ our pick won,
+    # False ⇒ the other side won). The two are independent so a lost match shows
+    # our underlined pick AND the 🏆 on the team that actually won.
     fav_a = pa >= pb
-    # pending → highlight our predicted favourite; settled → highlight the actual
-    # WINNER (was_correct True ⇒ favourite won, False ⇒ the other side won).
-    hi_a = fav_a if settled is None else (fav_a == settled)
-    a = _line_side(team_a, pa * 100, odds_a, hi_a)
-    b = _line_side(team_b, pb * 100, odds_b, not hi_a)
+    won_a = None if settled is None else (fav_a == settled)
+    a = _line_side(team_a, pa * 100, odds_a, pick=fav_a, won=won_a is True)
+    b = _line_side(team_b, pb * 100, odds_b, pick=not fav_a, won=won_a is False)
     mark = ""
     if settled is True:
         mark = "  ✅"
