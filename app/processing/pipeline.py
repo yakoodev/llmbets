@@ -23,12 +23,12 @@ async def run_news_pipeline(
     from app.telegram.notify import send_message
 
     collected = await collect_news()
-    if notify and collected:
-        await send_message(
-            f"🔍 Начинаю анализ новостей: {collected} новых, разбираю…"
-        )
     classified, digest = await classify_unprocessed(classify_limit)
     embedded = await embed_unembedded(embed_limit)
+    # Notify ONLY when there's actually relevant CS2 news. The old "начинаю
+    # анализ…" ping fired before classification, so an irrelevant item left a
+    # dangling "разбираю…" with no follow-up (looked like it stalled). The digest
+    # header already shows собрано/разобрано/релевантных.
     if notify and digest:
         await send_message(format_news_digest(digest, collected, classified))
     result = {
