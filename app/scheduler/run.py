@@ -17,6 +17,7 @@ from app.collectors.bo3 import collect_results, collect_upcoming
 from app.collectors.hltv import apply_results as apply_hltv_results
 from app.collectors.pandascore import collect_rosters
 from app.collectors.player_news import collect_player_news
+from app.collectors.team_news import collect_team_news
 from app.config import settings
 from app.db.models import SchedulerLock
 from app.db.session import SessionLocal
@@ -114,6 +115,7 @@ def build_scheduler() -> AsyncIOScheduler:
         (lambda: repredict_on_critical_news(notify=True), "repredict_critical", {"minutes": 20}, 50),
         (run_news_pipeline, "news_pipeline", {"minutes": settings.news_collect_interval_minutes}, 60),
         (collect_player_news, "player_news", {"hours": 3}, 80),
+        (collect_team_news, "team_news", {"hours": 2}, 90),
         (_daily_refresh, "daily_refresh", {"hours": 24}, 100),
     ]
     for fn, name, interval, offset in jobs:
