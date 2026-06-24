@@ -25,8 +25,9 @@ from app.db.session import SessionLocal
 log = logging.getLogger("collector.tg_channels")
 
 SOURCE_NAME = "Telegram CS2"
-# public CS2 news channels (web-preview readable). Add @usernames here.
-CS2_CHANNELS = ["escorenews"]
+# public, ACTIVE channels (web-preview readable) with CS2 coverage. The classifier
+# drops non-CS2 items. Add @usernames here. (escorenews/cs2/csgonews are dead.)
+CS2_CHANNELS = ["metaratings", "championat"]
 
 _UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36"}
 _POST_RE = re.compile(r'data-post="([^"]+)"')
