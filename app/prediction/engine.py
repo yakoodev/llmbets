@@ -142,7 +142,10 @@ async def predict_match(session, match: Match) -> Prediction | None:
     odds = await capture_odds(session, match)
     market_p_a = (odds or {}).get(match.team_a_id, {}).get("implied")
     if market_p_a is not None and 0.0 < float(market_p_a) < 1.0:
-        logit_final = W_MARKET * _logit(float(market_p_a)) + (1.0 - W_MARKET) * logit_model
+        from app.runtime_config import get_config
+        _wm = await get_config("w_market")  # self-calibrated; falls back to prior
+        w_market = float(_wm) if _wm else W_MARKET
+        logit_final = w_market * _logit(float(market_p_a)) + (1.0 - w_market) * logit_model
     else:
         logit_final = logit_model
     pa = _sigmoid(logit_final)

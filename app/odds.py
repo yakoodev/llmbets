@@ -221,20 +221,22 @@ async def latest_odds(session, match_id) -> dict:
     return out
 
 
-def _reblend_market(pred, match, quote) -> bool:
+def _reblend_market(pred, match, quote, w_market=None) -> bool:
     """Re-apply the market prior to a prediction IN PLACE from freshly captured
     odds + the stored pre-blend model prob. Heals predictions made before 1xBet
     posted a line (market prior was skipped at predict time). No LLM, no new row.
+    `w_market` is the (self-calibrated) blend weight; falls back to the prior.
     Returns True if the prediction was changed."""
     from app.prediction.engine import W_MARKET, _logit, _sigmoid
 
+    w = w_market if w_market is not None else W_MARKET
     fd = dict(pred.feature_drivers or {})
     model_pa = fd.get("model_prob_a")
     mkt_pa = (quote.get(match.team_a_id) or {}).get("implied")
     if model_pa is None or mkt_pa is None or not (0.0 < float(mkt_pa) < 1.0):
         return False
     mkt_pa = float(mkt_pa)
-    logit_f = W_MARKET * _logit(mkt_pa) + (1.0 - W_MARKET) * _logit(float(model_pa))
+    logit_f = w * _logit(mkt_pa) + (1.0 - w) * _logit(float(model_pa))
     pa = round(_sigmoid(logit_f), 4)
     pred.team_a_probability = pa
     pred.team_b_probability = round(1.0 - pa, 4)
@@ -247,7 +249,12 @@ def _reblend_market(pred, match, quote) -> bool:
 async def refresh_odds_for_upcoming(horizon_days: int = 7) -> int:
     """Pull fresh odds for every upcoming match and update its prediction's
     displayed line. Runs as a scheduler job."""
+    from app.prediction.engine import W_MARKET
+    from app.runtime_config import get_config
+
     horizon = datetime.now(timezone.utc) + timedelta(days=horizon_days)
+    _wmv = await get_config("w_market")  # self-calibrated blend weight
+    _wm = float(_wmv) if _wmv else W_MARKET
     n = 0
     async with SessionLocal() as session:
         matches = list(
@@ -273,7 +280,7 @@ async def refresh_odds_for_upcoming(horizon_days: int = 7) -> int:
                         "market_team_a": quote[m.team_a_id]["odds"],
                         "market_team_b": quote[m.team_b_id]["odds"],
                     }
-                    _reblend_market(pred, m, quote)  # heal missing market prior
+                    _reblend_market(pred, m, quote, _wm)  # heal missing market prior
                 n += 1
             await session.commit()
     log.info("refresh_odds_for_upcoming: odds for %d matches", n)

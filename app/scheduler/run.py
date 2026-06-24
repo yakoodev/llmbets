@@ -25,6 +25,7 @@ from app.db.session import SessionLocal
 from app.paper import rebuild_ledger
 from app.postmortem.analyzer import run_postmortems, settle_predictions
 from app.postmortem.daily_review import run_daily_review
+from app.prediction.calibrate import run_calibration
 from app.prediction.elo import rebuild_ratings
 from app.odds import refresh_odds_for_upcoming
 from app.prediction.engine import predict_upcoming, repredict_on_critical_news
@@ -118,6 +119,7 @@ def build_scheduler() -> AsyncIOScheduler:
         (collect_player_news, "player_news", {"hours": 3}, 80),
         (collect_team_news, "team_news", {"hours": 2}, 90),
         (collect_hltv_news, "hltv_news", {"hours": 1}, 110),
+        (run_calibration, "calibrate", {"hours": 24}, 130),
         (_daily_refresh, "daily_refresh", {"hours": 24}, 100),
     ]
     for fn, name, interval, offset in jobs:
