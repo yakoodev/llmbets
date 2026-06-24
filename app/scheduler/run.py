@@ -19,6 +19,7 @@ from app.collectors.hltv_news import collect_hltv_news
 from app.collectors.pandascore import collect_rosters
 from app.collectors.player_news import collect_player_news
 from app.collectors.team_news import collect_team_news
+from app.collectors.tg_channels import collect_tg_channels
 from app.config import settings
 from app.db.models import SchedulerLock
 from app.db.session import SessionLocal
@@ -119,6 +120,7 @@ def build_scheduler() -> AsyncIOScheduler:
         (collect_player_news, "player_news", {"hours": 3}, 80),
         (collect_team_news, "team_news", {"hours": 2}, 90),
         (collect_hltv_news, "hltv_news", {"hours": 1}, 110),
+        (collect_tg_channels, "tg_channels", {"hours": 1}, 120),
         (run_calibration, "calibrate", {"hours": 24}, 130),
         (_daily_refresh, "daily_refresh", {"hours": 24}, 100),
     ]
