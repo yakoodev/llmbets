@@ -56,11 +56,13 @@ async def collect_tg_channels(per_channel: int = 12) -> int:
             except Exception as e:  # noqa: BLE001
                 log.warning("tg fetch failed for %s: %s", ch, e)
                 continue
-            blocks = r.text.split("tgme_widget_message_wrap")[1:]
+            # each post carries data-post="channel/<id>"; split on it and take the
+            # first message_text after each (that post's own text)
+            blocks = r.text.split('data-post="')[1:]
             for block in blocks[-per_channel:]:
-                post = _POST_RE.search(block)
+                post_id = block[: block.find('"')]
                 text = _TEXT_RE.search(block)
-                if not post or not text:
+                if not post_id or not text:
                     continue
                 clean = _strip_html(text.group(1)).strip()
                 if len(clean) < 15:
@@ -74,7 +76,7 @@ async def collect_tg_channels(per_channel: int = 12) -> int:
                         published = None
                 if published and published < cutoff:
                     continue
-                url = f"https://t.me/{post.group(1)}"
+                url = f"https://t.me/{post_id}"
                 content_hash = _hash(url, clean[:120])
                 if await session.scalar(
                     select(NewsItem.id).where(NewsItem.content_hash == content_hash)
