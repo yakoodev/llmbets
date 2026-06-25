@@ -221,23 +221,31 @@ async def latest_odds(session, match_id) -> dict:
     return out
 
 
-def _reblend_market(pred, match, quote, w_market=None) -> bool:
-    """Re-apply the market prior to a prediction IN PLACE from freshly captured
-    odds + the stored pre-blend model prob. Heals predictions made before 1xBet
-    posted a line (market prior was skipped at predict time). No LLM, no new row.
-    `w_market` is the (self-calibrated) blend weight; falls back to the prior.
-    Returns True if the prediction was changed."""
-    from app.prediction.engine import W_MARKET, _logit, _sigmoid
+def _reblend_market(pred, match, quote, w_market=None, learned=None) -> bool:
+    """Re-apply the market to a prediction IN PLACE from freshly captured odds —
+    heals predictions made before 1xBet posted a line. With learned weights, the
+    whole model is recomputed using the new market component; otherwise the simple
+    W_MARKET blend on the stored model prob. No LLM, no new row. Returns True if
+    the prediction changed."""
+    from app.prediction.engine import (
+        W_MARKET, _logit, _sigmoid, feature_x_from_snapshot, learned_logit,
+    )
 
-    w = w_market if w_market is not None else W_MARKET
     fd = dict(pred.feature_drivers or {})
-    model_pa = fd.get("model_prob_a")
     mkt_pa = (quote.get(match.team_a_id) or {}).get("implied")
-    if model_pa is None or mkt_pa is None or not (0.0 < float(mkt_pa) < 1.0):
+    if mkt_pa is None or not (0.0 < float(mkt_pa) < 1.0):
         return False
     mkt_pa = float(mkt_pa)
-    logit_f = w * _logit(mkt_pa) + (1.0 - w) * _logit(float(model_pa))
-    pa = round(_sigmoid(logit_f), 4)
+    if learned:
+        fd2 = dict(fd)
+        fd2["market_prob_a"] = mkt_pa
+        pa = round(_sigmoid(learned_logit(learned, feature_x_from_snapshot(fd2))), 4)
+    else:
+        model_pa = fd.get("model_prob_a")
+        if model_pa is None:
+            return False
+        w = w_market if w_market is not None else W_MARKET
+        pa = round(_sigmoid(w * _logit(mkt_pa) + (1.0 - w) * _logit(float(model_pa))), 4)
     pred.team_a_probability = pa
     pred.team_b_probability = round(1.0 - pa, 4)
     pred.predicted_winner_team_id = match.team_a_id if pa >= 0.5 else match.team_b_id
@@ -255,6 +263,9 @@ async def refresh_odds_for_upcoming(horizon_days: int = 7) -> int:
     horizon = datetime.now(timezone.utc) + timedelta(days=horizon_days)
     _wmv = await get_config("w_market")  # self-calibrated blend weight
     _wm = float(_wmv) if _wmv else W_MARKET
+    import json as _json
+    _lwv = await get_config("learned_weights")
+    _learned = _json.loads(_lwv) if _lwv else None
     n = 0
     async with SessionLocal() as session:
         matches = list(
@@ -280,7 +291,7 @@ async def refresh_odds_for_upcoming(horizon_days: int = 7) -> int:
                         "market_team_a": quote[m.team_a_id]["odds"],
                         "market_team_b": quote[m.team_b_id]["odds"],
                     }
-                    _reblend_market(pred, m, quote, _wm)  # heal missing market prior
+                    _reblend_market(pred, m, quote, _wm, _learned)  # heal/re-fit
                 n += 1
             await session.commit()
     log.info("refresh_odds_for_upcoming: odds for %d matches", n)

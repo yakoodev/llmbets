@@ -1,39 +1,57 @@
-"""Self-calibration — tune the market-blend weight from settled results.
+"""Self-learning — fit the model's feature weights on settled results.
 
-With few settled predictions, fitting ALL model weights would overfit. So we
-tune ONE high-leverage knob: how hard to trust the bookmaker line vs our model
-(W_MARKET). Grid-search the weight that minimises Brier on settled matches, then
-SHRINK it toward the 0.6 prior with a pseudo-count so a small sample can't yank
-it. The result is stored in runtime_config('w_market'); predict_match and the
-odds re-blend read it. Runs daily — the bot genuinely self-tunes as data grows.
+This is the real learning loop: replay EVERY settled match (its pre-match feature
+snapshot + actual outcome) and fit a logistic regression over the feature
+components [elo, form, news, h2h, drift, standin, market], minimising log-loss.
+L2-regularised toward PRIOR_WEIGHTS (≈ the hand-tuned blend) with a pseudo-count,
+so a small sample stays close to the prior and the weights move toward what the
+DATA says as history accumulates — i.e. the model learns how much form / news /
+H2H / the market actually predict outcomes. Stored in runtime_config
+('learned_weights'); predict_match + the odds re-blend read it.
 
 CLI:  python -m app.prediction.calibrate
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 
 from sqlalchemy import select
 
 from app.config import settings
-from app.db.models import Match, Prediction
+from app.db.models import Match, Prediction, PredictionSnapshot
 from app.db.session import SessionLocal
-from app.prediction.engine import W_MARKET, _logit, _sigmoid
+from app.prediction.engine import (
+    FEATURE_KEYS,
+    PRIOR_WEIGHTS,
+    _sigmoid,
+    feature_x_from_snapshot,
+)
 from app.runtime_config import set_config
 
 log = logging.getLogger("prediction.calibrate")
 
-MIN_SAMPLES = 40
-PRIOR_STRENGTH = 50  # pseudo-count shrinking the fit toward the W_MARKET prior
+MIN_SAMPLES = 25
+PRIOR_STRENGTH = 40.0  # L2 pull toward PRIOR_WEIGHTS (pseudo-count; bigger = stiffer)
+ITERS = 1200
+LR = 0.3
+
+
+def _brier(w: dict, data: list) -> float:
+    return sum(
+        (_sigmoid(w["bias"] + sum(w[k] * x[k] for k in FEATURE_KEYS)) - y) ** 2
+        for x, y in data
+    ) / len(data)
 
 
 async def run_calibration() -> dict:
     async with SessionLocal() as session:
         rows = list(
             await session.execute(
-                select(Prediction, Match)
+                select(Prediction, Match, PredictionSnapshot)
                 .join(Match, Match.id == Prediction.match_id)
+                .join(PredictionSnapshot, PredictionSnapshot.id == Prediction.snapshot_id)
                 .where(
                     Prediction.was_correct.isnot(None),
                     Match.winner_team_id.isnot(None),
@@ -41,43 +59,41 @@ async def run_calibration() -> dict:
             )
         )
     data = []
-    for p, m in rows:
-        fd = p.feature_drivers or {}
-        mp, md = fd.get("market_prob_a"), fd.get("model_prob_a")
-        if mp is None or md is None:
-            continue
-        if m.winner_team_id not in (m.team_a_id, m.team_b_id):
+    for p, m, snap in rows:
+        fd = (snap.feature_snapshot if snap else None) or p.feature_drivers or {}
+        if not fd or m.winner_team_id not in (m.team_a_id, m.team_b_id):
             continue
         y = 1.0 if m.winner_team_id == m.team_a_id else 0.0
-        data.append((float(md), float(mp), y))
+        data.append((feature_x_from_snapshot(fd), y))
 
     n = len(data)
     if n < MIN_SAMPLES:
-        log.info("calibrate: %d usable samples (<%d) — keep W_MARKET=%.2f", n, MIN_SAMPLES, W_MARKET)
-        return {"samples": n, "applied": False, "w_market": W_MARKET}
+        log.info("calibrate: %d settled samples (<%d) — not fitting yet", n, MIN_SAMPLES)
+        return {"samples": n, "applied": False}
 
-    def brier(w: float) -> float:
-        return sum(
-            (_sigmoid(w * _logit(mp) + (1.0 - w) * _logit(md)) - y) ** 2
-            for md, mp, y in data
-        ) / n
+    # L2-regularised logistic regression by gradient descent, prior = PRIOR_WEIGHTS
+    w = dict(PRIOR_WEIGHTS)
+    lam = PRIOR_STRENGTH / n
+    keys = list(FEATURE_KEYS)
+    for _ in range(ITERS):
+        gb = 0.0
+        g = {k: 0.0 for k in keys}
+        for x, y in data:
+            e = _sigmoid(w["bias"] + sum(w[k] * x[k] for k in keys)) - y
+            gb += e
+            for k in keys:
+                g[k] += e * x[k]
+        w["bias"] -= LR * (gb / n)
+        for k in keys:
+            w[k] -= LR * (g[k] / n + lam * (w[k] - PRIOR_WEIGHTS[k]))
 
-    best_w, best_b = W_MARKET, brier(W_MARKET)
-    for i in range(0, 101, 5):
-        w = i / 100.0
-        b = brier(w)
-        if b < best_b:
-            best_w, best_b = w, b
-
-    # shrink toward the prior so a small sample can't over-commit
-    w_final = round((n * best_w + PRIOR_STRENGTH * W_MARKET) / (n + PRIOR_STRENGTH), 3)
-    await set_config("w_market", str(w_final))
+    w = {k: round(v, 4) for k, v in w.items()}
+    await set_config("learned_weights", json.dumps(w))
     out = {
         "samples": n,
-        "best_w": round(best_w, 2),
-        "w_market": w_final,
-        "brier_fit": round(best_b, 4),
-        "brier_default": round(brier(W_MARKET), 4),
+        "brier_prior": round(_brier(PRIOR_WEIGHTS, data), 4),
+        "brier_learned": round(_brier(w, data), 4),
+        "weights": {k: round(v, 3) for k, v in w.items()},
         "applied": True,
     }
     log.info("calibrate: %s", out)

@@ -38,7 +38,7 @@ from app.prediction.elo import BASE_ELO, expected_score
 from app.prediction.features import head_to_head, news_signal, odds_drift, recent_form
 
 log = logging.getLogger("prediction.engine")
-MODEL_VERSION = "elo-form-news-market-v0.3"
+MODEL_VERSION = "elo-form-news-market-learned-v0.4"
 
 # Blend weights (logit space): Elo is the anchor, form/news only nudge.
 W_FORM = 0.8
@@ -58,7 +58,48 @@ def _logit(p: float) -> float:
 
 
 def _sigmoid(x: float) -> float:
+    x = min(max(x, -30.0), 30.0)
     return 1.0 / (1.0 + math.exp(-x))
+
+
+# ── Learnable model: a flat logistic over these feature components. Calibration
+# fits the weights on settled results (engine reads them from runtime_config);
+# PRIOR ≈ the current hand-tuned blend so a small sample stays close to it. ──
+FEATURE_KEYS = ("elo", "form", "news", "h2h", "drift", "standin", "market")
+PRIOR_WEIGHTS = {
+    "bias": 0.0, "elo": 0.30, "form": 0.22, "news": 0.17,
+    "h2h": 0.14, "drift": 0.11, "standin": 0.14, "market": 0.60,
+}
+
+
+def feature_x_from_raw(p_elo, form_a, form_b, fn_a, fn_b, sig_a, sig_b,
+                       h2h_a, h2h_n, drift_a, standin_a, standin_b, market_p_a) -> dict:
+    fw = min(min(fn_a, fn_b), 10) / 10.0
+    hw = min(h2h_n, 6) / 6.0
+    return {
+        "elo": _logit(p_elo),
+        "form": (form_a - form_b) * fw,
+        "news": sig_a - sig_b,
+        "h2h": (h2h_a - 0.5) * hw,
+        "drift": drift_a,
+        "standin": -(standin_a - standin_b),
+        "market": _logit(float(market_p_a)) if (market_p_a is not None and 0.0 < float(market_p_a) < 1.0) else 0.0,
+    }
+
+
+def feature_x_from_snapshot(fd: dict) -> dict:
+    return feature_x_from_raw(
+        fd.get("prob_elo_a", 0.5), fd.get("recent_form_a", 0.5), fd.get("recent_form_b", 0.5),
+        fd.get("form_matches_a", 0), fd.get("form_matches_b", 0),
+        fd.get("news_signal_a", 0.0), fd.get("news_signal_b", 0.0),
+        fd.get("h2h_winrate_a", 0.5), fd.get("h2h_matches", 0), fd.get("odds_drift_a", 0.0),
+        1.0 if fd.get("standin_a") else 0.0, 1.0 if fd.get("standin_b") else 0.0,
+        fd.get("market_prob_a"),
+    )
+
+
+def learned_logit(weights: dict, x: dict) -> float:
+    return weights.get("bias", 0.0) + sum(weights.get(k, 0.0) * x[k] for k in FEATURE_KEYS)
 
 
 def _confidence(mp_a: int, mp_b: int, pa: float) -> tuple[float, str]:
@@ -141,8 +182,17 @@ async def predict_match(session, match: Match) -> Prediction | None:
     # this stops the model favouring teams the market has as underdogs and losing.
     odds = await capture_odds(session, match)
     market_p_a = (odds or {}).get(match.team_a_id, {}).get("implied")
-    if market_p_a is not None and 0.0 < float(market_p_a) < 1.0:
-        from app.runtime_config import get_config
+    from app.runtime_config import get_config
+
+    _lw = await get_config("learned_weights")  # weights fit on settled history
+    if _lw:
+        import json
+        x = feature_x_from_raw(
+            p_elo, form_a, form_b, fn_a, fn_b, sig_a, sig_b,
+            h2h_a, h2h_n, drift_a, standin_a, standin_b, market_p_a,
+        )
+        logit_final = learned_logit(json.loads(_lw), x)
+    elif market_p_a is not None and 0.0 < float(market_p_a) < 1.0:
         _wm = await get_config("w_market")  # self-calibrated; falls back to prior
         w_market = float(_wm) if _wm else W_MARKET
         logit_final = w_market * _logit(float(market_p_a)) + (1.0 - w_market) * logit_model
