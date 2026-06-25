@@ -71,6 +71,12 @@ async def run_calibration() -> dict:
         log.info("calibrate: %d settled samples (<%d) — not fitting yet", n, MIN_SAMPLES)
         return {"samples": n, "applied": False}
 
+    # symmetrise: team_a vs team_b has no inherent order, so add each match's
+    # mirror (negate the deltas, flip the label). Forces bias→0 and symmetric
+    # weights — kills the spurious "team_a wins more" artifact.
+    data = data + [({k: -x[k] for k in FEATURE_KEYS}, 1.0 - y) for x, y in data]
+    n = len(data)
+
     # L2-regularised logistic regression by gradient descent, prior = PRIOR_WEIGHTS
     w = dict(PRIOR_WEIGHTS)
     lam = PRIOR_STRENGTH / n
