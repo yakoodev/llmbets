@@ -193,14 +193,61 @@ async def _capture_onexbet(session, match: Match) -> dict | None:
     return _store(session, match, oa, ob, "1xbet")
 
 
+# ── Pinnacle (sharpest book) — its snapshots are stored by collectors.pinnacle ──
+
+W_PINNACLE = 0.6  # consensus weight on Pinnacle (sharper) vs the betable book
+
+
+async def _pinnacle_quote(session, match: Match) -> dict | None:
+    """Latest stored Pinnacle line for this match, de-vigged to true prob."""
+    od = {}
+    for tid in (match.team_a_id, match.team_b_id):
+        o = await session.scalar(
+            select(OddsSnapshot.odds_decimal)
+            .where(
+                OddsSnapshot.match_id == match.id,
+                OddsSnapshot.bookmaker == "pinnacle",
+                OddsSnapshot.selection_team_id == tid,
+            )
+            .order_by(OddsSnapshot.captured_at.desc())
+            .limit(1)
+        )
+        if o:
+            od[tid] = float(o)
+    if len(od) < 2:
+        return None
+    ia, ib = 1.0 / od[match.team_a_id], 1.0 / od[match.team_b_id]
+    pa = ia / (ia + ib)
+    return {
+        match.team_a_id: {"odds": round(od[match.team_a_id], 3), "implied": round(pa, 4)},
+        match.team_b_id: {"odds": round(od[match.team_b_id], 3), "implied": round(1.0 - pa, 4)},
+    }
+
+
+def _consensus(match: Match, q_book: dict | None, q_pin: dict | None) -> dict | None:
+    """Blend two de-vigged lines into a consensus market prob (Pinnacle weighted
+    higher, it's sharper). One present → use it (e.g. early Pinnacle before 1xBet
+    posts). Odds shown = the betable book when present, else Pinnacle."""
+    if q_book and q_pin:
+        pa = W_PINNACLE * q_pin[match.team_a_id]["implied"] + (1 - W_PINNACLE) * q_book[match.team_a_id]["implied"]
+        return {
+            match.team_a_id: {"odds": q_book[match.team_a_id]["odds"], "implied": round(pa, 4)},
+            match.team_b_id: {"odds": q_book[match.team_b_id]["odds"], "implied": round(1.0 - pa, 4)},
+        }
+    return q_book or q_pin
+
+
 async def capture_odds(session, match: Match) -> dict | None:
     if not (match.team_a_id and match.team_b_id):
         return None
     if settings.odds_provider in ("onexbet", "1xbet"):
-        return await _capture_onexbet(session, match)
-    if settings.odds_provider == "oddspapi":
-        return await _capture_oddspapi(session, match)
-    return await _capture_mock(session, match)
+        q_book = await _capture_onexbet(session, match)
+    elif settings.odds_provider == "oddspapi":
+        q_book = await _capture_oddspapi(session, match)
+    else:
+        q_book = await _capture_mock(session, match)
+    q_pin = await _pinnacle_quote(session, match)
+    return _consensus(match, q_book, q_pin)
 
 
 async def latest_odds(session, match_id) -> dict:
