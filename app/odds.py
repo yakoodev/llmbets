@@ -19,7 +19,7 @@ import httpx
 from sqlalchemy import select
 
 from app.config import settings
-from app.db.models import Match, OddsSnapshot, Prediction, Team, TeamRating
+from app.db.models import Match, OddsSnapshot, PaperBet, Prediction, Team, TeamRating
 from app.db.session import SessionLocal
 from app.prediction.elo import BASE_ELO, expected_score
 from app.processing.entities import normalize
@@ -345,9 +345,47 @@ async def refresh_odds_for_upcoming(horizon_days: int = 7) -> int:
     return n
 
 
+async def clv_vs_pinnacle(session) -> dict:
+    """Closing-line value of settled paper bets vs Pinnacle's closing line — the
+    real edge test. We bet at 1xBet; Pinnacle is the sharpest book, so beating
+    its close = genuine value (unlike 1xBet-vs-itself, which was structurally 0).
+    Positive avg_clv_pct over many bets ⇒ real edge. Populates as bets settle with
+    Pinnacle data (live from 2026-06-25)."""
+    bets = list(
+        await session.scalars(
+            select(PaperBet).where(
+                PaperBet.result.isnot(None), PaperBet.selection_team_id.isnot(None)
+            )
+        )
+    )
+    clvs = []
+    for pb in bets:
+        close = await session.scalar(
+            select(OddsSnapshot.odds_decimal)
+            .where(
+                OddsSnapshot.match_id == pb.match_id,
+                OddsSnapshot.bookmaker == "pinnacle",
+                OddsSnapshot.selection_team_id == pb.selection_team_id,
+            )
+            .order_by(OddsSnapshot.captured_at.desc())
+            .limit(1)
+        )
+        if close and float(close) > 1 and float(pb.odds) > 1:
+            clvs.append(float(pb.odds) / float(close) - 1.0)
+    if not clvs:
+        return {"n": 0, "avg_clv_pct": None, "beat_close": 0}
+    return {
+        "n": len(clvs),
+        "avg_clv_pct": round(sum(clvs) / len(clvs) * 100, 2),
+        "beat_close": sum(1 for c in clvs if c > 0),
+    }
+
+
 async def _main() -> None:
     logging.basicConfig(level=settings.log_level)
     print(f"provider={settings.odds_provider} -> refreshed {await refresh_odds_for_upcoming()}")
+    async with SessionLocal() as s:
+        print("CLV vs Pinnacle:", await clv_vs_pinnacle(s))
 
 
 if __name__ == "__main__":

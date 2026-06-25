@@ -133,17 +133,20 @@ async def run_daily_review(lookback_hours: int = 24, notify: bool = True):
         review.raw_llm_output = data
         await session.commit()
 
+        from app.odds import clv_vs_pinnacle
+        clv = await clv_vs_pinnacle(session)  # real edge test vs the sharp close
         snapshot = {
             "date": str(review_date),
             "settled": n,
             "correct": correct,
             "accuracy": accuracy,
             "avg_brier": avg_brier,
+            "clv": clv,
             "conclusions": conclusions,
         }
     if notify:
         await send_message(format_daily_review(snapshot))
-    log.info("daily_review: %d settled, acc %.2f", n, accuracy)
+    log.info("daily_review: %d settled, acc %.2f, clv %s", n, accuracy, clv)
     return snapshot
 
 
