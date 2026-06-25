@@ -67,6 +67,10 @@ class Team(Base, TimestampMixin, UpdatedMixin):
     bo3_id: Mapped[str | None] = mapped_column(Text, index=True)
     rank: Mapped[int | None] = mapped_column(Integer)  # bo3.gg world rank
     tier: Mapped[str | None] = mapped_column(Text)  # tier1 / tier2 / ...
+    # roster strength = mean six-month player rating (bo3) of the active lineup;
+    # the team-strength signal — the only feature that proved to carry signal.
+    strength: Mapped[float | None] = mapped_column(Numeric)
+    strength_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     rosters: Mapped[list["TeamRoster"]] = relationship(back_populates="team")
 

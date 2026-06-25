@@ -34,6 +34,10 @@ async def main() -> None:
             text("ALTER TABLE teams ADD COLUMN IF NOT EXISTS bo3_id TEXT")
         )
         await conn.execute(text("ALTER TABLE teams ADD COLUMN IF NOT EXISTS rank INT"))
+        await conn.execute(text("ALTER TABLE teams ADD COLUMN IF NOT EXISTS strength NUMERIC"))
+        await conn.execute(
+            text("ALTER TABLE teams ADD COLUMN IF NOT EXISTS strength_at TIMESTAMPTZ")
+        )
         await conn.execute(
             text("ALTER TABLE matches ADD COLUMN IF NOT EXISTS team_a_standin BOOLEAN")
         )
