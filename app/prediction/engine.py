@@ -65,15 +65,16 @@ def _sigmoid(x: float) -> float:
 # ── Learnable model: a flat logistic over these feature components. Calibration
 # fits the weights on settled results (engine reads them from runtime_config);
 # PRIOR ≈ the current hand-tuned blend so a small sample stays close to it. ──
-FEATURE_KEYS = ("elo", "form", "news", "h2h", "drift", "standin", "market")
+FEATURE_KEYS = ("elo", "form", "news", "h2h", "drift", "standin", "market", "mappool")
 PRIOR_WEIGHTS = {
     "bias": 0.0, "elo": 0.30, "form": 0.22, "news": 0.17,
-    "h2h": 0.14, "drift": 0.11, "standin": 0.14, "market": 0.60,
+    "h2h": 0.14, "drift": 0.11, "standin": 0.14, "market": 0.60, "mappool": 0.30,
 }
 
 
 def feature_x_from_raw(p_elo, form_a, form_b, fn_a, fn_b, sig_a, sig_b,
-                       h2h_a, h2h_n, drift_a, standin_a, standin_b, market_p_a) -> dict:
+                       h2h_a, h2h_n, drift_a, standin_a, standin_b, market_p_a,
+                       mappool=0.0) -> dict:
     fw = min(min(fn_a, fn_b), 10) / 10.0
     hw = min(h2h_n, 6) / 6.0
     return {
@@ -84,6 +85,7 @@ def feature_x_from_raw(p_elo, form_a, form_b, fn_a, fn_b, sig_a, sig_b,
         "drift": drift_a,
         "standin": -(standin_a - standin_b),
         "market": _logit(float(market_p_a)) if (market_p_a is not None and 0.0 < float(market_p_a) < 1.0) else 0.0,
+        "mappool": float(mappool or 0.0),
     }
 
 
@@ -94,7 +96,7 @@ def feature_x_from_snapshot(fd: dict) -> dict:
         fd.get("news_signal_a", 0.0), fd.get("news_signal_b", 0.0),
         fd.get("h2h_winrate_a", 0.5), fd.get("h2h_matches", 0), fd.get("odds_drift_a", 0.0),
         1.0 if fd.get("standin_a") else 0.0, 1.0 if fd.get("standin_b") else 0.0,
-        fd.get("market_prob_a"),
+        fd.get("market_prob_a"), fd.get("mappool", 0.0),
     )
 
 
@@ -156,6 +158,8 @@ async def predict_match(session, match: Match) -> Prediction | None:
     sig_a, sig_b, news_details = await news_signal(session, match)
     h2h_a, h2h_n = await head_to_head(session, match.team_a_id, match.team_b_id)
     drift_a = await odds_drift(session, match.id, match.team_a_id)
+    from app.collectors.bo3_maps import map_pool_adv
+    mappool = await map_pool_adv(session, match.team_a_id, match.team_b_id)
 
     # signals weighted by sample size — thin data must move the number less
     form_w = min(min(fn_a, fn_b), 10) / 10.0
@@ -189,7 +193,7 @@ async def predict_match(session, match: Match) -> Prediction | None:
         import json
         x = feature_x_from_raw(
             p_elo, form_a, form_b, fn_a, fn_b, sig_a, sig_b,
-            h2h_a, h2h_n, drift_a, standin_a, standin_b, market_p_a,
+            h2h_a, h2h_n, drift_a, standin_a, standin_b, market_p_a, mappool,
         )
         logit_final = learned_logit(json.loads(_lw), x)
     elif market_p_a is not None and 0.0 < float(market_p_a) < 1.0:
@@ -230,6 +234,7 @@ async def predict_match(session, match: Match) -> Prediction | None:
         "standin_a": bool(match.team_a_standin),
         "standin_b": bool(match.team_b_standin),
         "shrink": round(shrink, 3),
+        "mappool": round(mappool, 4),  # map-pool advantage (team_a) — the map-strength edge
         # pre-blend model prob, kept so refresh_odds can re-apply the market prior
         # in place once 1xBet posts a line that wasn't available at predict time
         "model_prob_a": round(_sigmoid(logit_model), 4),

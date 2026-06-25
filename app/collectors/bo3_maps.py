@@ -116,6 +116,48 @@ async def team_map_winrate(session, team_id, map_name: str) -> tuple[float, int]
     return round(wins / total, 3), total
 
 
+_ACTIVE_MAPS = ("de_dust2", "de_mirage", "de_ancient", "de_nuke", "de_overpass", "de_inferno", "de_anubis")
+_SHRINK = 2.0  # pull each map win-rate toward 0.5 by this pseudo-count
+
+
+async def _team_map_stats(session, team_id, before=None) -> dict:
+    from sqlalchemy import case
+    q = (
+        select(
+            MatchMap.map_name,
+            func.count().label("n"),
+            func.sum(case((MatchMap.winner_team_id == team_id, 1), else_=0)).label("w"),
+        )
+        .join(Match, Match.id == MatchMap.match_id)
+        .where(
+            MatchMap.winner_team_id.isnot(None),
+            (Match.team_a_id == team_id) | (Match.team_b_id == team_id),
+        )
+        .group_by(MatchMap.map_name)
+    )
+    if before is not None:
+        q = q.where(Match.scheduled_at < before)
+    return {r.map_name: (int(r.w or 0), int(r.n or 0)) for r in await session.execute(q)}
+
+
+async def map_pool_adv(session, team_a_id, team_b_id, before=None) -> float:
+    """Team A's map-pool advantage = mean over active maps of (wr_a − wr_b), each
+    shrunk toward 0.5. The map-strength edge not priced into the bookmaker line.
+    `before` (a match's scheduled_at) makes it leakage-free for backtests."""
+    sa = await _team_map_stats(session, team_a_id, before)
+    sb = await _team_map_stats(session, team_b_id, before)
+    diffs = []
+    for m in _ACTIVE_MAPS:
+        wa, na = sa.get(m, (0, 0))
+        wb, nb = sb.get(m, (0, 0))
+        if na + nb == 0:
+            continue
+        ra = (wa + _SHRINK) / (na + 2 * _SHRINK)
+        rb = (wb + _SHRINK) / (nb + 2 * _SHRINK)
+        diffs.append(ra - rb)
+    return round(sum(diffs) / len(diffs), 4) if diffs else 0.0
+
+
 async def _main() -> None:
     logging.basicConfig(level=settings.log_level)
     days = int(sys.argv[1]) if len(sys.argv) > 1 else 21
