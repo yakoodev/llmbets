@@ -32,12 +32,12 @@ from app.runtime_config import get_config, set_config
 
 log = logging.getLogger("prediction.calibrate")
 
-MIN_SAMPLES = 60       # need enough to split train/test meaningfully
-TEST_FRAC = 0.25       # most-recent fraction held out for validation
+MIN_SAMPLES = 60       # need enough for a stable cross-validated estimate
+CV_FOLDS = 8           # k-fold CV for the adopt decision (robust on small data)
 PRIOR_STRENGTH = 40.0  # L2 pull toward PRIOR_WEIGHTS (pseudo-count; bigger = stiffer)
 ITERS = 1200
 LR = 0.3
-ADOPT_MARGIN = 0.0     # learned must beat the live model's Brier on the holdout
+ADOPT_MARGIN = 0.003   # learned must beat the live model's CV-Brier by this margin
 
 
 def _fit(train: list) -> dict:
@@ -58,13 +58,6 @@ def _fit(train: list) -> dict:
         for k in keys:
             w[k] -= LR * (g[k] / n + lam * (w[k] - PRIOR_WEIGHTS[k]))
     return {k: round(v, 4) for k, v in w.items()}
-
-
-def _brier_on(w: dict, data: list) -> float:
-    return sum(
-        (_sigmoid(w["bias"] + sum(w[k] * x[k] for k in FEATURE_KEYS)) - y) ** 2
-        for x, y, *_ in data
-    ) / len(data)
 
 
 async def run_calibration() -> dict:
@@ -97,22 +90,34 @@ async def run_calibration() -> dict:
         log.info("calibrate: %d settled (<%d) — staying on hand-tuned model", n, MIN_SAMPLES)
         return {"samples": n, "adopted": False}
 
-    # walk-forward: fit on the older part, validate on the most-recent held-out
-    # part. ADOPT the learned weights ONLY if they beat the LIVE model's Brier on
-    # that unseen slice — otherwise keep the hand-tuned model (no overfit takeover).
-    cut = int(n * (1 - TEST_FRAC))
-    train = [(x, y) for x, y, _ in samples[:cut]]
-    test = samples[cut:]
-    w = _fit(train)
-    brier_learned = _brier_on(w, test)
-    live = [b for _, _, b in test if b is not None]
-    brier_live = (sum(live) / len(live)) if live else None
-    adopt = brier_live is not None and brier_learned < brier_live - ADOPT_MARGIN
+    # k-fold CV: for each fold, fit on the other folds and score the held-out
+    # matches — both the learned model AND the LIVE recorded Brier on the SAME
+    # matches. Averaging over all folds (not one lucky split) gives a robust
+    # estimate. ADOPT only if learned genuinely beats live across the whole
+    # history by a margin — otherwise keep the proven hand-tuned model.
+    sl, slive, c = 0.0, 0.0, 0
+    for k in range(CV_FOLDS):
+        train = [(x, y) for i, (x, y, _) in enumerate(samples) if i % CV_FOLDS != k]
+        wf = _fit(train)
+        for x, y, lb in (samples[i] for i in range(n) if i % CV_FOLDS == k):
+            if lb is None:
+                continue
+            sl += (_sigmoid(wf["bias"] + sum(wf[kk] * x[kk] for kk in FEATURE_KEYS)) - y) ** 2
+            slive += lb
+            c += 1
+    brier_learned = (sl / c) if c else None
+    brier_live = (slive / c) if c else None
+    adopt = (
+        brier_learned is not None
+        and brier_live is not None
+        and brier_learned < brier_live - ADOPT_MARGIN
+    )
+    w = _fit([(x, y) for x, y, _ in samples])  # final weights fit on ALL data
     await set_config("learned_weights", json.dumps(w) if adopt else "")
     out = {
-        "samples": n, "test": len(test),
-        "brier_learned_test": round(brier_learned, 4),
-        "brier_live_test": round(brier_live, 4) if brier_live is not None else None,
+        "samples": n, "cv_scored": c,
+        "brier_learned_cv": round(brier_learned, 4) if brier_learned is not None else None,
+        "brier_live_cv": round(brier_live, 4) if brier_live is not None else None,
         "adopted": adopt,
         "weights": {k: round(v, 3) for k, v in w.items()},
     }
