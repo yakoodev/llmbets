@@ -15,6 +15,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.collectors.bo3 import collect_results, collect_upcoming
 from app.collectors.hltv import apply_results as apply_hltv_results
+from app.collectors.bo3_maps import collect_match_maps
 from app.collectors.hltv_news import collect_hltv_news
 from app.collectors.pandascore import collect_rosters
 from app.collectors.player_news import collect_player_news
@@ -122,6 +123,7 @@ def build_scheduler() -> AsyncIOScheduler:
         (collect_hltv_news, "hltv_news", {"hours": 1}, 110),
         (collect_tg_channels, "tg_channels", {"hours": 1}, 120),
         (run_calibration, "calibrate", {"hours": 24}, 130),
+        (collect_match_maps, "match_maps", {"minutes": 30}, 140),
         (_daily_refresh, "daily_refresh", {"hours": 24}, 100),
     ]
     for fn, name, interval, offset in jobs:
