@@ -10,10 +10,26 @@ from __future__ import annotations
 
 from sqlalchemy import delete, func, select
 
+from datetime import datetime
+
 from app.config import settings
 from app.db.models import Match, PaperBet, Prediction
 from app.db.session import SessionLocal
 from app.odds import latest_odds
+from app.runtime_config import get_config
+
+
+async def _ledger_since(session) -> datetime | None:
+    """Optional cutoff: only bet predictions settled at/after this time. Set on a
+    balance reset (runtime_config 'paper_ledger_since', ISO) so the ledger starts
+    fresh from the reset point instead of replaying all history."""
+    raw = await get_config("paper_ledger_since")
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        return None
 
 
 async def _current_balance(session) -> float:
@@ -83,11 +99,13 @@ async def rebuild_ledger() -> int:
     async with SessionLocal() as session:
         await session.execute(delete(PaperBet))
         await session.flush()
+        since = await _ledger_since(session)
+        q = select(Prediction).where(Prediction.was_correct.isnot(None))
+        if since is not None:
+            q = q.where(Prediction.settled_at >= since)
         preds = list(
             await session.scalars(
-                select(Prediction)
-                .where(Prediction.was_correct.isnot(None))
-                .order_by(
+                q.order_by(
                     Prediction.settled_at.asc().nullslast(),
                     Prediction.created_at.asc(),
                 )
@@ -103,14 +121,15 @@ async def rebuild_ledger() -> int:
 
 async def place_for_settled(session) -> int:
     """Backfill bets for settled predictions lacking one (in settle order)."""
-    preds = list(
-        await session.scalars(
-            select(Prediction)
-            .where(Prediction.was_correct.isnot(None))
-            .where(Prediction.id.notin_(select(PaperBet.prediction_id)))
-            .order_by(Prediction.settled_at.asc().nullslast())
-        )
+    since = await _ledger_since(session)
+    q = (
+        select(Prediction)
+        .where(Prediction.was_correct.isnot(None))
+        .where(Prediction.id.notin_(select(PaperBet.prediction_id)))
     )
+    if since is not None:
+        q = q.where(Prediction.settled_at >= since)
+    preds = list(await session.scalars(q.order_by(Prediction.settled_at.asc().nullslast())))
     n = 0
     for pred in preds:
         if await place_paper_bet(session, pred):
