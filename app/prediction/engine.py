@@ -46,10 +46,12 @@ W_NEWS = 0.6
 W_H2H = 0.5
 W_DRIFT = 0.4
 W_STANDIN = 0.5  # penalty for a team playing with a stand-in
+W_STRENGTH = 0.45  # roster player-rating diff — the model's own strength read
 # A sharp bookmaker's de-vigged probability is the single strongest signal.
 # Blend it in heavily so our model stops contradicting the market and losing —
 # it may still deviate (value), but anchored to the market, not free-floating.
-W_MARKET = 0.6
+W_MARKET = 0.35  # market is a CORRECTION now, not the driver — the model's own
+# Elo/strength/form analysis leads; odds still pull it (user choice 2026-06-30)
 
 
 def _logit(p: float) -> float:
@@ -182,6 +184,7 @@ async def predict_match(session, match: Match) -> Prediction | None:
         + W_H2H * (h2h_a - 0.5) * h2h_w
         + W_DRIFT * drift_a
         - W_STANDIN * (standin_a - standin_b)  # stand-in weakens that team
+        + W_STRENGTH * strength  # roster player-rating edge (team_a − team_b)
     )
     # uncertainty shrinkage: pull toward 50/50 when Elo history is thin,
     # and extra for bo1 (single-map = much higher variance)
