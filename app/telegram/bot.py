@@ -216,9 +216,23 @@ def _msk_day_bounds(offset: int = 0):
     return start, start + timedelta(days=1)
 
 
+_MIN_DT = datetime.min.replace(tzinfo=timezone.utc)
+
+
 async def _items(session, rows) -> list[dict]:
-    items = []
+    # one row per MATCH — keep the latest prediction (a match can carry >1:
+    # re-predict on news, or a transient race) so the list never shows duplicates
+    latest: dict = {}
     for pred, match in rows:
+        cur = latest.get(match.id)
+        if cur is None or (pred.created_at or _MIN_DT) > (cur[0].created_at or _MIN_DT):
+            latest[match.id] = (pred, match)
+    ordered = sorted(
+        latest.values(),
+        key=lambda pm: pm[1].scheduled_at or _MIN_DT,
+    )
+    items = []
+    for pred, match in ordered:
         a, b = await _team_names(session, match)
         odds = pred.fair_odds or {}
         items.append(
