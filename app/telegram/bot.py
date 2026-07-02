@@ -432,9 +432,13 @@ async def cmd_balance(message: Message) -> None:
     lines = ["💰 <b>Балансы по тактикам</b> (старт 1000)"]
     for r in rows:
         arrow = "🟢" if r["pnl"] >= 0 else "🔴"
+        streak = f"{r['max_losestreak']}"
+        if r.get("cur_streak"):
+            streak += f" (сейчас {r['cur_streak']})"
         lines.append(
             f"{arrow} <b>{esc(r['strategy'])}</b> — <b>{r['balance']:.0f}</b> "
             f"(P&L {r['pnl']:+.0f}, ROI {r['roi']:+.1f}%, {r['won']}/{r['bets']}✓)\n"
+            f"   📉 макс.лузстрик {streak} · макс.ставка {r['max_stake']:.0f} · просадка −{r['max_drawdown']:.0f}\n"
             f"   <i>{esc(r['desc'])}</i>"
         )
     await _reply(message, "\n".join(lines))

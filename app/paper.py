@@ -208,26 +208,43 @@ async def strategy_balances() -> list[dict]:
     out = []
     async with SessionLocal() as session:
         for name, spec in STRATEGIES.items():
-            base = select(func.coalesce(func.sum(StrategyBet.pnl), 0.0)).where(StrategyBet.strategy == name)
-            pnl = float(await session.scalar(base) or 0.0)
-            n = await session.scalar(
-                select(func.count()).select_from(StrategyBet).where(StrategyBet.strategy == name)
-            ) or 0
-            won = await session.scalar(
-                select(func.count()).select_from(StrategyBet).where(
-                    StrategyBet.strategy == name, StrategyBet.result == "won"
+            bets = list(
+                await session.scalars(
+                    select(StrategyBet)
+                    .where(StrategyBet.strategy == name)
+                    .order_by(StrategyBet.settled_at.asc().nullslast(), StrategyBet.created_at.asc())
                 )
-            ) or 0
-            staked = float(
-                await session.scalar(
-                    select(func.coalesce(func.sum(StrategyBet.stake), 0.0)).where(StrategyBet.strategy == name)
-                ) or 0.0
             )
+            bal = peak = start
+            max_dd = max_streak = cur_streak = 0
+            max_stake = worst_loss = 0.0
+            won = staked = 0.0
+            wc = 0
+            for b in bets:
+                stk = float(b.stake)
+                pnl_b = float(b.pnl or 0.0)
+                bal += pnl_b
+                staked += stk
+                max_stake = max(max_stake, stk)
+                peak = max(peak, bal)
+                max_dd = max(max_dd, peak - bal)  # deepest drop from a running high
+                if b.result == "won":
+                    wc += 1
+                    cur_streak = 0
+                else:
+                    cur_streak += 1
+                    max_streak = max(max_streak, cur_streak)
+                    worst_loss = min(worst_loss, pnl_b)
+            n = len(bets)
+            pnl = bal - start
             out.append(
                 {
-                    "strategy": name, "desc": spec["desc"], "balance": round(start + pnl, 2),
-                    "pnl": round(pnl, 2), "bets": n, "won": won,
+                    "strategy": name, "desc": spec["desc"], "balance": round(bal, 2),
+                    "pnl": round(pnl, 2), "bets": n, "won": wc,
                     "roi": round(pnl / staked * 100, 1) if staked else 0.0,
+                    "max_losestreak": max_streak, "cur_streak": cur_streak,
+                    "max_stake": round(max_stake, 2), "max_drawdown": round(max_dd, 2),
+                    "worst_loss": round(worst_loss, 2),
                 }
             )
     out.sort(key=lambda x: x["balance"], reverse=True)
