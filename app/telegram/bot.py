@@ -418,18 +418,8 @@ async def cmd_accuracy(message: Message) -> None:
     )
 
 
-@dp.message(Command("balance"))
+@dp.message(Command("balance", "balances"))
 async def cmd_balance(message: Message) -> None:
-    if not _authorized(message):
-        return
-    from app.paper import balance
-    from app.telegram.formatters import format_balance
-
-    await _reply(message, format_balance(await balance()))
-
-
-@dp.message(Command("balances"))
-async def cmd_balances(message: Message) -> None:
     if not _authorized(message):
         return
     from app.paper import strategy_balances
