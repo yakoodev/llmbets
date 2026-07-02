@@ -90,7 +90,7 @@ async def cmd_help(message: Message) -> None:
         "🎯 /predictions — последние прогнозы\n"
         "📊 /results — итоги сыгранных матчей\n"
         "📈 /accuracy — точность модели\n"
-        "💰 /balance — тестовый баланс\n"
+        "💰 /balances — тестовые балансы всех тактик\n"
         "🏅 /top — топ команд по Elo\n"
         "🩺 /status — состояние системы\n"
         "🧠 /model — показать/сменить модель LLM\n"
@@ -474,7 +474,8 @@ async def _set_commands(bot: Bot) -> None:
             BotCommand(command="predictions", description="Последние прогнозы"),
             BotCommand(command="results", description="Итоги сыгранных"),
             BotCommand(command="accuracy", description="Точность модели"),
-            BotCommand(command="balance", description="Тестовый баланс"),
+            BotCommand(command="balance", description="Балансы всех тактик"),
+            BotCommand(command="balances", description="Балансы всех тактик"),
             BotCommand(command="top", description="Топ команд по Elo"),
             BotCommand(command="status", description="Состояние системы"),
             BotCommand(command="model", description="Сменить модель LLM"),

@@ -12,20 +12,22 @@ from __future__ import annotations
 # filter: bet this event? (default: always). Staking: flat `pct` of the running
 # bankroll, or martingale (base_pct of START, doubled per consecutive loss).
 STRATEGIES: dict[str, dict] = {
-    "flat10": {"desc": "10% банка на каждый прогноз", "pct": 0.10},
-    "flat3": {"desc": "3% банка (осторожный)", "pct": 0.03},
+    "flat10": {"desc": "ставим на каждый прогноз, 10% банка (агрессивно)", "pct": 0.10},
+    "flat3": {"desc": "ставим на каждый прогноз, но осторожно — 3% банка", "pct": 0.03},
     "lowrisk": {
-        "desc": "только низкий риск, 10%",
+        "desc": "ставим только на прогнозы с низким риском, 10% банка",
         "pct": 0.10,
         "filter": lambda e: (e["risk"] or "").lower() == "low",
     },
     "value": {
-        "desc": "только value (наша вероятн. > рынка +3%), 5%",
+        # bet only when OUR estimated win-chance beats the bookmaker's implied
+        # one by ≥3pp — i.e. we think the line underrates our pick (real value).
+        "desc": "ставим, только если наш шанс на победу ВЫШЕ, чем закладывает кэф букмекера (мин. +3%) — ловим недооценку. 5% банка",
         "pct": 0.05,
         "filter": lambda e: e["mkt"] is not None and e["prob"] > e["mkt"] + 0.03,
     },
     "martingale_hi": {
-        "desc": "мартингейл на кэф > 2.0",
+        "desc": "только смелые ставки (кэф > 2.0): после проигрыша удваиваем, после победы сброс к базовой 3% (опасно — серия неудач может обнулить банк)",
         "martingale": True,
         "base_pct": 0.03,
         "filter": lambda e: e["odds"] > 2.0,
