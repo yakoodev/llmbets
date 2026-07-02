@@ -428,6 +428,28 @@ async def cmd_balance(message: Message) -> None:
     await _reply(message, format_balance(await balance()))
 
 
+@dp.message(Command("balances"))
+async def cmd_balances(message: Message) -> None:
+    if not _authorized(message):
+        return
+    from app.paper import strategy_balances
+    from app.telegram.formatters import esc
+
+    rows = await strategy_balances()
+    if not rows:
+        await _reply(message, "💰 Стратегии ещё не считались.")
+        return
+    lines = ["💰 <b>Балансы по тактикам</b> (старт 1000)"]
+    for r in rows:
+        arrow = "🟢" if r["pnl"] >= 0 else "🔴"
+        lines.append(
+            f"{arrow} <b>{esc(r['strategy'])}</b> — <b>{r['balance']:.0f}</b> "
+            f"(P&L {r['pnl']:+.0f}, ROI {r['roi']:+.1f}%, {r['won']}/{r['bets']}✓)\n"
+            f"   <i>{esc(r['desc'])}</i>"
+        )
+    await _reply(message, "\n".join(lines))
+
+
 @dp.message(Command("top"))
 async def cmd_top(message: Message) -> None:
     if not _authorized(message):

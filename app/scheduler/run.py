@@ -26,7 +26,7 @@ from app.collectors.tg_channels import collect_tg_channels
 from app.config import settings
 from app.db.models import SchedulerLock
 from app.db.session import SessionLocal
-from app.paper import rebuild_ledger
+from app.paper import rebuild_ledger, rebuild_strategy_ledgers
 from app.postmortem.analyzer import run_postmortems, settle_predictions
 from app.postmortem.daily_review import run_daily_review
 from app.prediction.calibrate import run_calibration
@@ -89,6 +89,7 @@ async def _settle_and_postmortem():
     # recompute the whole ledger so balance self-heals if a result was corrected
     # (% staking compounds — a flipped historical bet shifts every later balance)
     await rebuild_ledger()
+    await rebuild_strategy_ledgers()  # replay every tactic on its own bankroll
     await run_postmortems()
 
 

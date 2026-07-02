@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from sqlalchemy import delete, func, select
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.config import settings
 from app.db.models import Match, PaperBet, Prediction
@@ -136,6 +136,102 @@ async def place_for_settled(session) -> int:
             n += 1
     await session.commit()
     return n
+
+
+async def _build_events(session, since) -> list[dict]:
+    """One bettable event per match (latest prediction), in settle order. Each
+    strategy in app.strategies decides whether/how to bet it."""
+    q = select(Prediction).where(Prediction.was_correct.isnot(None))
+    if since is not None:
+        q = q.where(Prediction.settled_at >= since)
+    preds = list(await session.scalars(q.order_by(Prediction.created_at.asc())))
+    latest: dict = {}
+    for p in preds:
+        if p.predicted_winner_team_id is not None:
+            latest[p.match_id] = p  # later created_at wins → newest prediction/match
+    events = []
+    for p in latest.values():
+        match = await session.get(Match, p.match_id)
+        if not match:
+            continue
+        sel = p.predicted_winner_team_id
+        prob = float(p.team_a_probability if sel == match.team_a_id else p.team_b_probability)
+        odds_map = await latest_odds(session, p.match_id)
+        if sel in odds_map:
+            odds_used = float(odds_map[sel]["odds"])
+            mkt = odds_map[sel].get("implied")
+            mkt = float(mkt) if mkt else None
+        else:
+            odds_used = round(1.0 / min(max(prob, 0.01), 0.99), 3)
+            mkt = None
+        events.append(
+            {
+                "pred_id": p.id, "match_id": p.match_id, "selection": sel,
+                "odds": odds_used, "prob": prob, "mkt": mkt, "risk": p.risk_level,
+                "won": bool(p.was_correct), "settled_at": p.settled_at,
+            }
+        )
+    events.sort(key=lambda e: e["settled_at"] or datetime.min.replace(tzinfo=timezone.utc))
+    return events
+
+
+async def rebuild_strategy_ledgers() -> int:
+    """Wipe + replay every strategy over the settled-prediction stream."""
+    from app.db.models import StrategyBet
+    from app.strategies import STRATEGIES, simulate
+
+    async with SessionLocal() as session:
+        await session.execute(delete(StrategyBet))
+        await session.flush()
+        since = await _ledger_since(session)
+        events = await _build_events(session, since)
+        start = settings.paper_start_balance
+        for name, spec in STRATEGIES.items():
+            for b in simulate(name, spec, events, start):
+                session.add(
+                    StrategyBet(
+                        strategy=name, prediction_id=b["pred_id"], match_id=b["match_id"],
+                        selection_team_id=b["selection"], stake=b["stake"], odds=b["odds"],
+                        result="won" if b["won"] else "lost", pnl=b["pnl"],
+                        settled_at=b["settled_at"],
+                    )
+                )
+        await session.commit()
+    return len(events)
+
+
+async def strategy_balances() -> list[dict]:
+    from app.db.models import StrategyBet
+    from app.strategies import STRATEGIES
+
+    start = settings.paper_start_balance
+    out = []
+    async with SessionLocal() as session:
+        for name, spec in STRATEGIES.items():
+            base = select(func.coalesce(func.sum(StrategyBet.pnl), 0.0)).where(StrategyBet.strategy == name)
+            pnl = float(await session.scalar(base) or 0.0)
+            n = await session.scalar(
+                select(func.count()).select_from(StrategyBet).where(StrategyBet.strategy == name)
+            ) or 0
+            won = await session.scalar(
+                select(func.count()).select_from(StrategyBet).where(
+                    StrategyBet.strategy == name, StrategyBet.result == "won"
+                )
+            ) or 0
+            staked = float(
+                await session.scalar(
+                    select(func.coalesce(func.sum(StrategyBet.stake), 0.0)).where(StrategyBet.strategy == name)
+                ) or 0.0
+            )
+            out.append(
+                {
+                    "strategy": name, "desc": spec["desc"], "balance": round(start + pnl, 2),
+                    "pnl": round(pnl, 2), "bets": n, "won": won,
+                    "roi": round(pnl / staked * 100, 1) if staked else 0.0,
+                }
+            )
+    out.sort(key=lambda x: x["balance"], reverse=True)
+    return out
 
 
 async def balance() -> dict:

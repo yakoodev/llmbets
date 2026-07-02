@@ -23,6 +23,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
@@ -445,6 +446,26 @@ class PaperBet(Base, TimestampMixin):
     result: Mapped[str | None] = mapped_column(Text)  # won / lost
     pnl: Mapped[float | None] = mapped_column(Numeric)
     settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class StrategyBet(Base, TimestampMixin):
+    """A paper bet under ONE named staking/selection strategy. Every strategy
+    replays the same settled-prediction stream with its own rules + bankroll, so
+    we can compare tactics head-to-head. Not unique per prediction (each strategy
+    may bet it); unique per (strategy, prediction)."""
+
+    __tablename__ = "strategy_bets"
+    id: Mapped[uuid.UUID] = _pk()
+    strategy: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    prediction_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("predictions.id"), nullable=False)
+    match_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("matches.id"), nullable=False)
+    selection_team_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("teams.id"))
+    stake: Mapped[float] = mapped_column(Numeric, nullable=False)
+    odds: Mapped[float] = mapped_column(Numeric, nullable=False)
+    result: Mapped[str | None] = mapped_column(Text)  # won / lost
+    pnl: Mapped[float | None] = mapped_column(Numeric)
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("strategy", "prediction_id", name="uq_strategy_pred"),)
 
 
 class Outbox(Base, TimestampMixin):
